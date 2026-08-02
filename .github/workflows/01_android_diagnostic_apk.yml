@@ -96,20 +96,24 @@ jobs:
           python3 scripts/patch_claim_diagnostics.py
           grep -n "CLAIM-DIAG" app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java
 
-      - name: Build debug APK
+      - name: Build debug APK and capture full log
         shell: bash
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
         run: |
+          mkdir -p build-artifacts
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          set +e
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build-artifacts/gradle-build.log
+          build_status=${PIPESTATUS[0]}
+          set -e
+          echo "${build_status}" > build-artifacts/gradle-build-status.txt
+          echo "Gradle exit status: ${build_status}"
 
       - name: Collect APK and build information
-        if: success()
+        if: always()
         shell: bash
         run: |
-          mkdir -p build-artifacts
-          cp app/build/outputs/apk/debug/*.apk build-artifacts/
           {
             echo "repository=${GITHUB_REPOSITORY}"
             echo "ref=${GITHUB_REF}"
@@ -117,13 +121,27 @@ jobs:
             echo "workflow_run=${GITHUB_RUN_ID}"
             echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > build-artifacts/build-info.txt
-          sha256sum build-artifacts/*.apk > build-artifacts/SHA256SUMS.txt
 
-      - name: Upload diagnostic APK
-        if: success()
+          if [ "$(cat build-artifacts/gradle-build-status.txt)" = "0" ]; then
+            cp app/build/outputs/apk/debug/*.apk build-artifacts/
+            sha256sum build-artifacts/*.apk > build-artifacts/SHA256SUMS.txt
+          fi
+
+      - name: Upload APK and build diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: esp-rainmaker-diagnostic-debug-apk
           path: build-artifacts/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Fail workflow when Gradle failed
+        if: always()
+        shell: bash
+        run: |
+          status="$(cat build-artifacts/gradle-build-status.txt)"
+          if [ "${status}" != "0" ]; then
+            echo "Gradle build failed with exit status ${status}. See gradle-build.log in the artifact."
+            exit "${status}"
+          fi
