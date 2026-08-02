@@ -1,0 +1,117 @@
+name: Android Diagnostic APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/fix-assisted-claim-diagnostics
+    paths:
+      - "app/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "scripts/patch_claim_diagnostics.py"
+      - ".github/workflows/01_android_diagnostic_apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    name: Build diagnostic debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Create build properties
+        shell: bash
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=${ANDROID_SDK_ROOT}
+          appName=ESP RainMaker Diagnostic
+          transport=Both
+          security=2
+          security2Username=wifiprov
+          security2UsernameThread=threadprov
+          deviceNamePrefix=PROV_
+          wifiScanSource=Device
+          isChinaRegion=false
+          isLocalControlSupported=true
+          isScheduleSupported=true
+          isSceneSupported=true
+          isNodeGroupingSupported=true
+          isNodeSharingSupported=true
+          isAutomationSupported=true
+          isOtaSupported=false
+          isMatterSupported=false
+          isCommandResponseSupported=false
+          EOF
+
+          if [ ! -f app/google-services.json ] && [ -f app/google-services.json.template ]; then
+            cp app/google-services.json.template app/google-services.json
+          fi
+
+      - name: Apply Assisted Claim diagnostics
+        shell: bash
+        run: |
+          python3 scripts/patch_claim_diagnostics.py
+          grep -n "CLAIM-DIAG" app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java
+
+      - name: Build debug APK
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Collect APK and build information
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p build-artifacts
+          cp app/build/outputs/apk/debug/*.apk build-artifacts/
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "ref=${GITHUB_REF}"
+            echo "commit=${GITHUB_SHA}"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > build-artifacts/build-info.txt
+          sha256sum build-artifacts/*.apk > build-artifacts/SHA256SUMS.txt
+
+      - name: Upload diagnostic APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp-rainmaker-diagnostic-debug-apk
+          path: build-artifacts/
+          if-no-files-found: error
+          retention-days: 14
