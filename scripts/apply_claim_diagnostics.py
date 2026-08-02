@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Apply and validate the Assisted Claim diagnostic source transformation.
+"""Apply and validate the Assisted Claim diagnostic source transformations.
 
-The primary patcher intentionally stores Java snippets in Python multiline strings.
-This wrapper normalizes embedded display newlines to Java ``\\n`` escape
-sequences before Gradle compiles the generated source.
+The primary activity patcher intentionally stores Java snippets in Python
+multiline strings. This wrapper normalizes embedded display newlines to Java
+``\\n`` escape sequences, then patches ApiManager so Retrofit/OkHttp root causes
+are preserved instead of being replaced by a generic Claim-init error.
 """
 
 from pathlib import Path
 import runpy
 
-PATCHER = Path("scripts/patch_claim_diagnostics.py")
+ACTIVITY_PATCHER = Path("scripts/patch_claim_diagnostics.py")
+API_PATCHER = Path("scripts/patch_claim_api_diagnostics.py")
 TARGET = Path("app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java")
 
 
 def main() -> None:
-    runpy.run_path(str(PATCHER), run_name="__main__")
+    runpy.run_path(str(ACTIVITY_PATCHER), run_name="__main__")
 
     source = TARGET.read_text(encoding="utf-8")
     line_feed = chr(10)
@@ -43,6 +45,8 @@ def main() -> None:
     remaining = [pattern for pattern in replacements if pattern in source]
     if remaining:
         raise RuntimeError("Generated Java still contains unescaped display newlines")
+
+    runpy.run_path(str(API_PATCHER), run_name="__main__")
 
     print(f"Applied and normalized diagnostics in {TARGET}")
 
