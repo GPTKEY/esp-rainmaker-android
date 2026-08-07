@@ -5,19 +5,24 @@ on:
     branches:
       - codex/existing-wifi-reuse-first-pairing
     paths:
-      - "scripts/implement_existing_wifi_reuse_first_pairing.py"
+      - "app/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
       - ".github/workflows/02_existing_wifi_reuse_first_pairing.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: existing-wifi-reuse-first-pairing
+  group: existing-wifi-reuse-first-pairing-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  implement-build-commit:
+  build-debug-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -25,7 +30,6 @@ jobs:
       - name: Checkout feature branch
         uses: actions/checkout@v4
         with:
-          ref: codex/existing-wifi-reuse-first-pairing
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -43,14 +47,6 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
-
-      - name: Apply planned source changes
-        shell: bash
-        run: |
-          python3 -m py_compile scripts/implement_existing_wifi_reuse_first_pairing.py
-          python3 scripts/implement_existing_wifi_reuse_first_pairing.py
-          grep -R "KEY_REUSE_CURRENT_WIFI" -n app/src/main/java/com/espressif
-          grep -R "ExistingWifiReuseHelper" -n app/src/main/java/com/espressif/ui/activities
 
       - name: Create CI build properties
         shell: bash
@@ -80,6 +76,25 @@ jobs:
             cp app/google-services.json.template app/google-services.json
           fi
 
+      - name: Verify implementation boundaries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          provision = Path('app/src/main/java/com/espressif/ui/activities/ProvisionActivity.java').read_text(encoding='utf-8')
+          helper = Path('app/src/main/java/com/espressif/utils/ExistingWifiReuseHelper.java').read_text(encoding='utf-8')
+          claiming = Path('app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java').read_text(encoding='utf-8')
+
+          assert 'KEY_REUSE_CURRENT_WIFI' in provision
+          assert 'continueWithExistingWifiAfterAssociation()' in provision
+          assert 'prepareGetWiFiConfigStatusMsg' in helper
+          assert 'WifiStationState.Connected' in helper
+          assert 'response.hasWifiConnected()' in helper
+          assert 'routeAfterClaimWithExistingWifiCheck' in claiming
+          print('Implementation boundary checks passed')
+          PY
+
       - name: Build debug APK
         shell: bash
         env:
@@ -87,46 +102,6 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace :app:assembleDebug
-
-      - name: Verify implementation boundaries
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('app/src/main/java/com/espressif/ui/activities/ProvisionActivity.java').read_text(encoding='utf-8')
-          assert 'continueWithExistingWifiAfterAssociation()' in p
-          assert 'KEY_REUSE_CURRENT_WIFI' in p
-          helper = Path('app/src/main/java/com/espressif/utils/ExistingWifiReuseHelper.java').read_text(encoding='utf-8')
-          assert 'prepareGetWiFiConfigStatusMsg' in helper
-          assert 'WifiStationState.Connected' in helper
-          assert 'response.hasWifiConnected()' in helper
-          print('Implementation boundary checks passed')
-          PY
-
-      - name: Commit compiled source implementation
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add \
-            app/src/main/java/com/espressif/AppConstants.kt \
-            app/src/main/java/com/espressif/utils/ExistingWifiReuseHelper.java \
-            app/src/main/java/com/espressif/ui/activities/BLEProvisionLanding.java \
-            app/src/main/java/com/espressif/ui/activities/ProofOfPossessionActivity.java \
-            app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java \
-            app/src/main/java/com/espressif/ui/activities/ProvisionActivity.java \
-            app/src/main/res/values/strings.xml \
-            app/src/main/res/values-zh-rCN/strings.xml \
-            app/src/main/res/values-zh-rSG/strings.xml \
-            docs/architecture/01_20260808_existing_wifi_reuse_first_pairing_plan.md
-
-          if git diff --cached --quiet; then
-            echo "No product source changes to commit."
-          else
-            git commit -m "功能：首次配对支持复用设备现有Wi-Fi"
-            git push origin HEAD:codex/existing-wifi-reuse-first-pairing
-          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
