@@ -178,3 +178,21 @@ Claim（保持现有 RainMaker 兼容顺序）
 - wrong password rollback；
 - Claim / User-Node Mapping；
 - 重启后 Wi-Fi + RainMaker 恢复。
+
+## 11. 实施记录
+
+实现分支：`codex/existing-wifi-reuse-first-pairing`。
+
+本轮按计划落地：
+
+- 新增标准 `prov-config / TypeCmdGetWifiStatus` 状态读取；
+- 仅 `CONNECTED + 有效 SSID + 有效 IPv4` 才允许提示复用；
+- Claim 顺序保持不变，Claim 成功后再检查当前 Wi-Fi；
+- “继续使用当前网络”通过独立 `KEY_REUSE_CURRENT_WIFI` 进入后续映射/添加流程；
+- 该分支显式不调用 `ESPDevice.provision()`，因此不会发送新 SSID/password，也不会执行 `set_config + apply_config`；
+- “重新配置 Wi-Fi”继续复用现有 `WiFiScanActivity / WiFiConfigActivity / ProvisionActivity`；
+- 查询失败、超时、无有效网络时静默回退现有 Wi-Fi 配网；
+- Thread-only 设备保持原流程；
+- 旧 BLE local-control skip 代码暂保留，但不再作为首次添加“当前 Wi-Fi 可用”的判断依据。
+
+最终实机验收仍按第 9 节 7 个场景一次性执行。

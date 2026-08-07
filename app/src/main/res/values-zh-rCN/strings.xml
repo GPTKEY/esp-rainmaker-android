@@ -702,4 +702,12 @@
     <string name="camera_toast_webrtc_start_failed">启动 WebRTC 失败：%1$s</string>
     <string name="camera_toast_start_failed">启动失败：%1$s</string>
 
+
+    <!-- 首次配对复用设备当前 Wi-Fi -->
+    <string name="current_wifi_available_title">设备当前网络可用</string>
+    <string name="current_wifi_available_message">设备当前已连接网络：%1$s\n\n继续使用当前网络，无需重新输入密码。</string>
+    <string name="continue_current_wifi">继续使用当前网络</string>
+    <string name="reconfigure_wifi">重新配置 Wi-Fi</string>
+    <string name="current_wifi_reuse_prov_step">继续使用设备当前 Wi-Fi</string>
+
 </resources>

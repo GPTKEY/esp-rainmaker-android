@@ -56,6 +56,7 @@ import com.espressif.rainmaker.R;
 import com.espressif.ui.Utils;
 import com.espressif.ui.adapters.BleDeviceListAdapter;
 import com.espressif.ui.models.BleDevice;
+import com.espressif.utils.ExistingWifiReuseHelper;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.card.MaterialCardView;
 
@@ -523,10 +524,10 @@ public class BLEProvisionLanding extends AppCompatActivity {
             goToPopActivity();
         } else if (hasClaimCap || hasCameraClaimCap) {
             goToClaimingActivity(hasCameraClaimCap);
-        } else if (tryShowBleLocalControlSkipFlow(rmakerExtraCaps, deviceCaps)) {
-            return;
         } else {
-            routeToWifiOrThread(deviceCaps);
+            /* No Claim capability: Security/PoP is already ready, so query the real
+             * device Wi-Fi status before asking the user for new credentials. */
+            routeWithExistingWifiCheck(deviceCaps);
         }
     }
 
@@ -572,6 +573,42 @@ public class BLEProvisionLanding extends AppCompatActivity {
         } else {
             goToWiFiConfigActivity();
         }
+    }
+
+    private void routeWithExistingWifiCheck(final ArrayList<String> deviceCaps) {
+        if (!ExistingWifiReuseHelper.shouldCheckWifi(deviceCaps)) {
+            routeToWifiOrThread(deviceCaps);
+            return;
+        }
+
+        ESPDevice espDevice = provisionManager.getEspDevice();
+        if (espDevice == null) {
+            routeToWifiOrThread(deviceCaps);
+            return;
+        }
+
+        ExistingWifiReuseHelper.queryAndAsk(this, espDevice,
+                new ExistingWifiReuseHelper.DecisionListener() {
+                    @Override
+                    public void onReuseCurrentWifi(ExistingWifiReuseHelper.CurrentWifiStatus status) {
+                        goToProvisionUsingExistingWifi(status);
+                    }
+
+                    @Override
+                    public void onReconfigureWifi() {
+                        routeToWifiOrThread(deviceCaps);
+                    }
+                });
+    }
+
+    private void goToProvisionUsingExistingWifi(ExistingWifiReuseHelper.CurrentWifiStatus status) {
+        Intent provisionIntent = new Intent(getApplicationContext(), ProvisionActivity.class);
+        provisionIntent.putExtras(getIntent());
+        provisionIntent.removeExtra(AppConstants.KEY_PASSWORD);
+        provisionIntent.putExtra(AppConstants.KEY_SSID, status.getSsid());
+        provisionIntent.putExtra(AppConstants.KEY_REUSE_CURRENT_WIFI, true);
+        startActivity(provisionIntent);
+        finish();
     }
 
     private View.OnClickListener btnScanClickListener = new View.OnClickListener() {

@@ -712,4 +712,12 @@
     <string name="camera_toast_webrtc_start_failed">Failed to start WebRTC: %1$s</string>
     <string name="camera_toast_start_failed">Failed to start: %1$s</string>
 
+
+    <!-- First-pairing reuse of device current Wi-Fi -->
+    <string name="current_wifi_available_title">Current device network is available</string>
+    <string name="current_wifi_available_message">Device is currently connected to: %1$s\n\nContinue using this network without entering the password again.</string>
+    <string name="continue_current_wifi">Continue with current network</string>
+    <string name="reconfigure_wifi">Reconfigure Wi-Fi</string>
+    <string name="current_wifi_reuse_prov_step">Using current Wi-Fi connection</string>
+
 </resources>

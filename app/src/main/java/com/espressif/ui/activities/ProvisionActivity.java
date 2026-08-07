@@ -119,6 +119,8 @@ public class ProvisionActivity extends AppCompatActivity {
     private EspLocalDevice localDevice;
 
     private boolean isBleLocalCtrlFlow = false;
+    /* 首次添加时复用设备已连接 Wi-Fi。该模式与 BLE local-control skip 语义独立。 */
+    private boolean isReuseCurrentWifi = false;
     private String bleLocalCtrlDeviceName = null;
     private String bleLocalCtrlPop = null;
     private Handler wifiConnectHandler = new Handler();
@@ -154,9 +156,11 @@ public class ProvisionActivity extends AppCompatActivity {
             }
         }
         isBleLocalCtrlFlow = intent.getBooleanExtra(AppConstants.KEY_BLE_LOCAL_CTRL, false);
+        isReuseCurrentWifi = intent.getBooleanExtra(AppConstants.KEY_REUSE_CURRENT_WIFI, false);
         bleLocalCtrlDeviceName = intent.getStringExtra(AppConstants.KEY_DEVICE_NAME);
         bleLocalCtrlPop = intent.getStringExtra(AppConstants.KEY_PROOF_OF_POSSESSION);
         Log.d(TAG, "BLE Local Ctrl Flow: " + isBleLocalCtrlFlow);
+        Log.d(TAG, "Reuse current Wi-Fi flow: " + isReuseCurrentWifi);
         Log.d(TAG, "From Intent - deviceName: " + bleLocalCtrlDeviceName + ", pop: " + bleLocalCtrlPop);
 
         provisionManager = ESPProvisionManager.getInstance(getApplicationContext());
@@ -339,6 +343,8 @@ public class ProvisionActivity extends AppCompatActivity {
         if (!TextUtils.isEmpty(dataset)) {
             tvProvStep1.setText(R.string.thread_prov_step_1);
             tvProvStep2.setText(R.string.thread_prov_step_2);
+        } else if (isReuseCurrentWifi) {
+            tvProvStep2.setText(R.string.current_wifi_reuse_prov_step);
         }
     }
 
@@ -482,6 +488,25 @@ public class ProvisionActivity extends AppCompatActivity {
                 Log.e(TAG, "Get node details - failure");
                 // Even if we fail to get details, proceed with status check
                 handler.postDelayed(getNodeStatusTask, 1000);
+            }
+        });
+    }
+
+    /**
+     * 已确认设备当前 Wi-Fi 为 CONNECTED 后的首次添加路径。
+     *
+     * 这里故意不调用 ESPDevice.provision()，因此不会执行 set_config/apply_config，
+     * 不会重新发送 SSID/password，也不会要求设备重写 Wi-Fi 持久化配置。
+     * 用户映射已完成后，直接按“Wi-Fi 已就绪”推进原有后续添加节点流程。
+     */
+    private void continueWithExistingWifiAfterAssociation() {
+        Log.i(TAG, "Reuse current Wi-Fi: skip set/apply config and continue device addition");
+        isProvisioningCompleted = true;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                doStep2();
+                doStep3(true);
             }
         });
     }
@@ -814,6 +839,8 @@ public class ProvisionActivity extends AppCompatActivity {
                                                     if (isBleLocalCtrlFlow) {
                                                         /* BLE local control flow - skip Wi-Fi provisioning */
                                                         startBleLocalCtrlFlow();
+                                                    } else if (isReuseCurrentWifi) {
+                                                        continueWithExistingWifiAfterAssociation();
                                                     } else {
                                                         provision();
                                                     }
@@ -1142,7 +1169,11 @@ public class ProvisionActivity extends AppCompatActivity {
                 receivedNodeId = response.getNodeId();
                 this.secretKey = secretKey;
 
-                provision();
+                if (isReuseCurrentWifi) {
+                    continueWithExistingWifiAfterAssociation();
+                } else {
+                    provision();
+                }
             }
 
         } catch (InvalidProtocolBufferException e) {

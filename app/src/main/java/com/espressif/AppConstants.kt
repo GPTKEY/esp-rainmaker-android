@@ -557,6 +557,8 @@ class AppConstants {
         const val KEY_IS_GROUPS = "is_groups"
         const val KEY_IS_CAMERA_CLAIM = "is_camera_claim"
         const val KEY_BLE_LOCAL_CTRL = "ble_local_ctrl"
+        // 首次添加时复用设备当前已连接的 Wi-Fi；不得借此标志下发新 Wi-Fi 凭据。
+        const val KEY_REUSE_CURRENT_WIFI = "reuse_current_wifi"
 
         const val CERT_BEGIN = "-----BEGIN CERTIFICATE REQUEST-----"
         const val CERT_END = "-----END CERTIFICATE REQUEST-----"

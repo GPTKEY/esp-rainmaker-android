@@ -39,6 +39,7 @@ import com.espressif.provisioning.ESPProvisionManager;
 import com.espressif.provisioning.listeners.ResponseListener;
 import com.espressif.rainmaker.R;
 import com.espressif.rainmaker.databinding.ActivityClaimingBinding;
+import com.espressif.utils.ExistingWifiReuseHelper;
 import com.google.android.material.card.MaterialCardView;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -461,10 +462,10 @@ public class ClaimingActivity extends AppCompatActivity {
                 if ((offset + dataCount) >= certificateData.length()) {
 
                     Log.d(TAG, "Certificate Sent to device successfully.");
-                    if (!checkAndShowBleLocalCtrlFlow()) {
-                        ArrayList<String> deviceCaps = provisionManager.getEspDevice().getDeviceCapabilities();
-                        routeToWifiOrThread(deviceCaps);
-                    }
+                    ArrayList<String> deviceCaps = provisionManager.getEspDevice().getDeviceCapabilities();
+                    /* Claim 顺序保持不变。Claim 完成后先读取设备当前标准 Wi-Fi status，
+                     * 再决定复用当前网络还是进入原有 Wi-Fi 配置页面。 */
+                    routeAfterClaimWithExistingWifiCheck(deviceCaps);
                 } else {
                     int newOffset = offset + dataCount;
                     sendCertificateToDevice(newOffset);
@@ -696,6 +697,39 @@ public class ClaimingActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    private void routeAfterClaimWithExistingWifiCheck(final ArrayList<String> deviceCaps) {
+        if (!ExistingWifiReuseHelper.shouldCheckWifi(deviceCaps)) {
+            routeToWifiOrThread(deviceCaps);
+            return;
+        }
+
+        if (provisionManager.getEspDevice() == null) {
+            routeToWifiOrThread(deviceCaps);
+            return;
+        }
+
+        ExistingWifiReuseHelper.queryAndAsk(this, provisionManager.getEspDevice(),
+                new ExistingWifiReuseHelper.DecisionListener() {
+                    @Override
+                    public void onReuseCurrentWifi(ExistingWifiReuseHelper.CurrentWifiStatus status) {
+                        Intent provisionIntent = new Intent(getApplicationContext(), ProvisionActivity.class);
+                        provisionIntent.putExtras(getIntent());
+                        /* 继续使用当前网络：显式移除密码，且由 ProvisionActivity 的独立
+                         * KEY_REUSE_CURRENT_WIFI 分支保证不调用 ESPDevice.provision()。 */
+                        provisionIntent.removeExtra(AppConstants.KEY_PASSWORD);
+                        provisionIntent.putExtra(AppConstants.KEY_SSID, status.getSsid());
+                        provisionIntent.putExtra(AppConstants.KEY_REUSE_CURRENT_WIFI, true);
+                        startActivity(provisionIntent);
+                        finish();
+                    }
+
+                    @Override
+                    public void onReconfigureWifi() {
+                        routeToWifiOrThread(deviceCaps);
+                    }
+                });
     }
 
     private void goToWiFiScanActivity() {

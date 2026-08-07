@@ -36,6 +36,7 @@ import com.espressif.provisioning.listeners.ResponseListener;
 import com.espressif.rainmaker.BuildConfig;
 import com.espressif.rainmaker.R;
 import com.espressif.ui.Utils;
+import com.espressif.utils.ExistingWifiReuseHelper;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.card.MaterialCardView;
 
@@ -238,10 +239,9 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
                         
                         if (hasClaimCap || hasCameraClaimCap) {
                             goToClaimingActivity(hasCameraClaimCap);
-                        } else if (checkAndShowBleLocalCtrlFlow()) {
-                            return;
                         } else {
-                            routeToWifiOrThread(deviceCaps);
+                            /* No Claim capability: query current device Wi-Fi first. */
+                            routeWithExistingWifiCheck(deviceCaps);
                         }
                     }
                 });
@@ -258,6 +258,37 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    private void routeWithExistingWifiCheck(final ArrayList<String> deviceCaps) {
+        if (!ExistingWifiReuseHelper.shouldCheckWifi(deviceCaps)) {
+            routeToWifiOrThread(deviceCaps);
+            return;
+        }
+
+        if (provisionManager.getEspDevice() == null) {
+            routeToWifiOrThread(deviceCaps);
+            return;
+        }
+
+        ExistingWifiReuseHelper.queryAndAsk(this, provisionManager.getEspDevice(),
+                new ExistingWifiReuseHelper.DecisionListener() {
+                    @Override
+                    public void onReuseCurrentWifi(ExistingWifiReuseHelper.CurrentWifiStatus status) {
+                        Intent provisionIntent = new Intent(getApplicationContext(), ProvisionActivity.class);
+                        provisionIntent.putExtras(getIntent());
+                        provisionIntent.removeExtra(AppConstants.KEY_PASSWORD);
+                        provisionIntent.putExtra(AppConstants.KEY_SSID, status.getSsid());
+                        provisionIntent.putExtra(AppConstants.KEY_REUSE_CURRENT_WIFI, true);
+                        startActivity(provisionIntent);
+                        finish();
+                    }
+
+                    @Override
+                    public void onReconfigureWifi() {
+                        routeToWifiOrThread(deviceCaps);
+                    }
+                });
     }
 
     private void goToClaimingActivity(boolean isCameraClaim) {
