@@ -16,14 +16,18 @@ package com.espressif.ui.adapters;
 
 import android.content.Context;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.espressif.EspApplication;
 import com.espressif.NetworkApiManager;
+import com.espressif.ble.BleLocalControlManager;
 import com.espressif.cloudapi.ApiResponseListener;
 import com.espressif.ui.Utils;
 import com.espressif.ui.activities.EspDeviceActivity;
 import com.espressif.ui.hostconfig.HostConfigurationPolicy;
+import com.espressif.ui.models.Device;
 import com.espressif.ui.models.EspNode;
 import com.espressif.ui.models.ParamUpdateRequest;
 import com.google.gson.JsonObject;
@@ -40,21 +44,31 @@ import java.util.concurrent.Executors;
 public class DeviceParamUpdates {
 
     private static final String TAG = DeviceParamUpdates.class.getSimpleName();
-    private final int QUEUE_SIZE = 5;
+    private static final int QUEUE_SIZE = 5;
 
-    private String nodeId;
-    private String deviceName;
-    private ExecutorService exeService;
-    private NetworkApiManager networkApiManager;
-    private EspApplication espApp;
+    /*
+     * BLE 写 ACK 后 NetworkApiManager 还会执行 getParamsWithTimestamp() 用于 proxy 上报。
+     * 权威回读不得与该 BLE 读取并发。这里用短周期、有限次数的 Handler 重试等待 BLE 空闲：
+     * 12 * 250 ms = 最多约 3 秒；超时后不阻塞后续写队列，交给现有周期刷新继续收敛。
+     */
+    private static final long BLE_READBACK_INITIAL_DELAY_MS = 100L;
+    private static final long BLE_READBACK_RETRY_DELAY_MS = 250L;
+    private static final int BLE_READBACK_MAX_WAIT_RETRIES = 12;
 
-    private HashMap<String, Queue<Number>> sliderParamMap;  // Param 名称 -> Slider 待发送值队列。
-    private HashMap<String, Number> lastSliderValues;       // Param 名称 -> 最近一次 Slider 值。
-    private HashMap<String, Long> lastRequestTimes;         // Param 名称 -> 最近一次请求时间。
+    private final String nodeId;
+    private final String deviceName;
+    private final ExecutorService exeService;
+    private final NetworkApiManager networkApiManager;
+    private final EspApplication espApp;
+    private final Handler mainHandler;
+    private final Context context;
+
+    private final HashMap<String, Queue<Number>> sliderParamMap;  // Param 名称 -> Slider 待发送值队列。
+    private final HashMap<String, Number> lastSliderValues;       // Param 名称 -> 最近一次 Slider 值。
+    private final HashMap<String, Long> lastRequestTimes;         // Param 名称 -> 最近一次请求时间。
+    private final ArrayList<ParamUpdateRequest> paramUpdateRequests;
     private volatile boolean isWait;
-    private ArrayList<ParamUpdateRequest> paramUpdateRequests;
-    private long THROTTLE_DELAY;
-    private Context context;
+    private final long THROTTLE_DELAY;
 
     public DeviceParamUpdates(Context activityContext, String nodeId, String deviceName) {
         this.context = activityContext;
@@ -69,6 +83,7 @@ public class DeviceParamUpdates {
         exeService = Executors.newSingleThreadExecutor();
         networkApiManager = new NetworkApiManager(activityContext.getApplicationContext());
         espApp = (EspApplication) activityContext.getApplicationContext();
+        mainHandler = new Handler(Looper.getMainLooper());
     }
 
     /**
@@ -330,7 +345,7 @@ public class DeviceParamUpdates {
         EspNode currentNode = espApp.nodeMap.get(nodeId);
         boolean hostConfigurationModel = false;
         if (currentNode != null) {
-            ArrayList<com.espressif.ui.models.Device> currentDevices = currentNode.getDevices();
+            ArrayList<Device> currentDevices = currentNode.getDevices();
             HostConfigurationPolicy.Snapshot snapshot = HostConfigurationPolicy.snapshot(currentDevices);
             hostConfigurationModel = snapshot.hostModel;
 
@@ -394,15 +409,69 @@ public class DeviceParamUpdates {
     }
 
     /**
-     * 主机配置写 ACK 后立即复用现有 NetworkApiManager 读取链回读权威 Param。
+     * 主机配置写 ACK 后启动权威 Param 回读。
+     *
+     * <p>Cloud/局域网路径直接读取；BLE 路径先延迟 100 ms，让 NetworkApiManager 的 proxy
+     * `getParamsWithTimestamp()` 有机会启动，再等待其释放 BLE 读通道。</p>
+     */
+    private void refreshAuthoritativeParamsAfterWrite() {
+        BleLocalControlManager bleManager = BleLocalControlManager.getInstance(context);
+        if (bleManager.isConnected(nodeId)) {
+            mainHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    waitForBleProxyAndReadAuthoritativeParams(0);
+                }
+            }, BLE_READBACK_INITIAL_DELAY_MS);
+            return;
+        }
+
+        executeAuthoritativeReadback();
+    }
+
+    /**
+     * 非阻塞等待 BLE proxy 读取完成。
+     *
+     * <p>达到最大次数后不继续占用 Param 写队列，现有周期刷新负责后续收敛。</p>
+     */
+    private void waitForBleProxyAndReadAuthoritativeParams(int retryCount) {
+        BleLocalControlManager bleManager = BleLocalControlManager.getInstance(context);
+
+        if (!bleManager.isConnected(nodeId)) {
+            // BLE 在等待期间断开，由 NetworkApiManager 按其现有策略选择其它读取路径。
+            executeAuthoritativeReadback();
+            return;
+        }
+
+        if (!bleManager.isProxyReadInProgress(nodeId)) {
+            executeAuthoritativeReadback();
+            return;
+        }
+
+        if (retryCount >= BLE_READBACK_MAX_WAIT_RETRIES) {
+            Log.w(TAG, "BLE proxy read still busy after bounded wait; skip immediate authoritative readback");
+            finishRequestAndContinue();
+            return;
+        }
+
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                waitForBleProxyAndReadAuthoritativeParams(retryCount + 1);
+            }
+        }, BLE_READBACK_RETRY_DELAY_MS);
+    }
+
+    /**
+     * 复用现有 NetworkApiManager 读取链回读权威 Param。
      *
      * <p>Cloud 路径的 ApiManager.getParamsValues() 会把返回值写回 espApp.nodeMap；Local/BLE
      * 路径也沿用项目现有解析逻辑。这里不创建第二份配置缓存。</p>
      *
      * <p>回读失败不把已经成功的写请求伪装成“写失败”：记录告警并释放队列，现有周期刷新仍会
-     * 继续收敛。底层 NetworkApiManager/Retrofit 负责已有网络超时与 fallback。</p>
+     * 继续收敛。底层 NetworkApiManager/Retrofit/BLE Manager 负责各自既有超时与 fallback。</p>
      */
-    private void refreshAuthoritativeParamsAfterWrite() {
+    private void executeAuthoritativeReadback() {
         networkApiManager.getParamsValues(nodeId, new ApiResponseListener() {
 
             @Override
@@ -431,7 +500,7 @@ public class DeviceParamUpdates {
     /**
      * 回读完成后直接复用 EspDeviceActivity 已有 updateViewTask 刷新当前页面。
      *
-     * <p>不修改 Activity 架构，也不引入新的 EventBus 事件。</p>
+     * <p>Activity 已退出时不再投递 UI 更新，避免异步回调访问已销毁页面。</p>
      */
     private void refreshDeviceActivityFromCurrentNode() {
         if (!(context instanceof EspDeviceActivity)) {
@@ -439,6 +508,9 @@ public class DeviceParamUpdates {
         }
 
         EspDeviceActivity activity = (EspDeviceActivity) context;
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            return;
+        }
         activity.runOnUiThread(activity.getUpdateViewTask());
     }
 
