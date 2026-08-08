@@ -20,7 +20,6 @@ import android.os.Parcelable;
 import com.espressif.AppConstants;
 
 import java.util.ArrayList;
-import java.util.Objects;
 
 public class Param implements Parcelable, Comparable {
 
@@ -51,24 +50,21 @@ public class Param implements Parcelable, Comparable {
     private boolean hostWriteAllowed = true;
 
     /**
-     * 主机液位阈值的临时 UI 投影。
+     * 主机液位阈值的临时有效范围投影。
      *
-     * <p>阈值是一组关联配置。Android 不修改 RainMaker 原始 bounds/uiType，而是在当前权威
-     * low/high 基础上投影有效编辑边界，并把连续 Slider 临时显示为一次确认式文本编辑，
-     * 避免拖动过程连续提交中间值。</p>
+     * <p>Android 不修改 RainMaker 原始 bounds；只依据当前主机权威 Low/High 值收紧 Slider
+     * 的可编辑范围。权限或另一阈值变化后重新计算即可恢复。</p>
      */
     private boolean hostBoundsOverrideApplied;
     private int hostMinBounds;
     private int hostMaxBounds;
-    private String hostUiTypeOverride;
 
     public Param(Param param) {
 
         name = param.getName();
         paramType = param.getParamType();
         dataType = param.getDataType();
-        // 必须复制原始 uiType，不能把主机阈值临时 UI 投影固化到副本。
-        uiType = param.uiType;
+        uiType = param.getUiType();
         // 必须复制原始 properties，不能调用 getProperties()，否则只读投影会被永久写进副本。
         properties = param.properties == null ? null : new ArrayList<>(param.properties);
         // 同理复制原始 bounds，临时阈值边界单独保存在 override 字段。
@@ -87,7 +83,6 @@ public class Param implements Parcelable, Comparable {
         hostBoundsOverrideApplied = param.hostBoundsOverrideApplied;
         hostMinBounds = param.hostMinBounds;
         hostMaxBounds = param.hostMaxBounds;
-        hostUiTypeOverride = param.hostUiTypeOverride;
     }
 
     public String getName() {
@@ -115,16 +110,11 @@ public class Param implements Parcelable, Comparable {
     }
 
     public String getUiType() {
-        return hostUiTypeOverride != null ? hostUiTypeOverride : uiType;
+        return uiType;
     }
 
     public void setUiType(String uiType) {
         this.uiType = uiType;
-    }
-
-    /** 设置主机专用 UI 类型投影；传 null 清除，不修改 RainMaker 原始 uiType。 */
-    public void setHostUiTypeOverride(String uiTypeOverride) {
-        hostUiTypeOverride = uiTypeOverride;
     }
 
     /**
@@ -301,7 +291,6 @@ public class Param implements Parcelable, Comparable {
         hostBoundsOverrideApplied = in.readByte() != 0;
         hostMinBounds = in.readInt();
         hostMaxBounds = in.readInt();
-        hostUiTypeOverride = in.readString();
     }
 
     public static final Creator<Param> CREATOR = new Creator<Param>() {
@@ -343,7 +332,6 @@ public class Param implements Parcelable, Comparable {
         dest.writeByte((byte) (hostBoundsOverrideApplied ? 1 : 0));
         dest.writeInt(hostMinBounds);
         dest.writeInt(hostMaxBounds);
-        dest.writeString(hostUiTypeOverride);
     }
 
     @Override
@@ -351,7 +339,7 @@ public class Param implements Parcelable, Comparable {
         return "Param {" +
                 "name = '" + name + '\'' +
                 ", dataType ='" + dataType + '\'' +
-                ", uiType ='" + getUiType() + '\'' +
+                ", uiType ='" + uiType + '\'' +
                 '}';
     }
 
@@ -385,8 +373,7 @@ public class Param implements Parcelable, Comparable {
                 && compare.hostWriteAllowed == this.hostWriteAllowed
                 && compare.hostBoundsOverrideApplied == this.hostBoundsOverrideApplied
                 && compare.hostMinBounds == this.hostMinBounds
-                && compare.hostMaxBounds == this.hostMaxBounds
-                && Objects.equals(compare.hostUiTypeOverride, this.hostUiTypeOverride)) {
+                && compare.hostMaxBounds == this.hostMaxBounds) {
             return 0;
         }
         return 1;
