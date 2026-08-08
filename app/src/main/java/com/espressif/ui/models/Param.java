@@ -17,6 +17,8 @@ package com.espressif.ui.models;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.espressif.AppConstants;
+
 import java.util.ArrayList;
 
 public class Param implements Parcelable, Comparable {
@@ -37,23 +39,36 @@ public class Param implements Parcelable, Comparable {
     private boolean isSelected;
     private String dependencies;
 
+    /**
+     * 主机配置页的临时“有效写权限”投影标记。
+     *
+     * <p>这两个字段不改变 RainMaker 下发的原始 properties，只控制 {@link #getProperties()}
+     * 是否向现有通用 UI 暴露 WRITE。这样 RemoteControlEnabled/CloudOnline/WorkMode 更新后，
+     * UI 可以重新计算权限而不丢失原始 RW 契约。</p>
+     */
+    private boolean hostWriteGateApplied;
+    private boolean hostWriteAllowed = true;
+
     public Param(Param param) {
 
         name = param.getName();
         paramType = param.getParamType();
         dataType = param.getDataType();
         uiType = param.getUiType();
-        properties = param.getProperties();
+        // 必须复制原始 properties，不能调用 getProperties()，否则只读投影会被永久写进副本。
+        properties = param.properties == null ? null : new ArrayList<>(param.properties);
         minBounds = param.getMinBounds();
         maxBounds = param.getMaxBounds();
         stepCount = param.getStepCount();
         value = param.getValue();
         switchStatus = param.getSwitchStatus();
         labelValue = param.getLabelValue();
-        validStrings = param.getValidStrings();
+        validStrings = param.getValidStrings() == null ? null : new ArrayList<>(param.getValidStrings());
         isDynamicParam = param.isDynamicParam();
         isSelected = param.isSelected();
         dependencies = param.getDependencies();
+        hostWriteGateApplied = param.hostWriteGateApplied;
+        hostWriteAllowed = param.hostWriteAllowed;
     }
 
     public String getName() {
@@ -88,12 +103,51 @@ public class Param implements Parcelable, Comparable {
         this.uiType = uiType;
     }
 
+    /**
+     * 返回 UI 当前可见的有效属性。
+     *
+     * <p>当主机在线但设备端未授权远控、CloudOnline=false，或 OutputState 不处于 MANUAL 模式时，
+     * 仅在返回值中隐藏 WRITE；原始 properties 保留，主机状态变化后可以立即恢复。</p>
+     */
     public ArrayList<String> getProperties() {
+        if (properties == null) {
+            return new ArrayList<>();
+        }
+        if (hostWriteGateApplied && !hostWriteAllowed
+                && properties.contains(AppConstants.KEY_PROPERTY_WRITE)) {
+            ArrayList<String> effectiveProperties = new ArrayList<>(properties);
+            effectiveProperties.remove(AppConstants.KEY_PROPERTY_WRITE);
+            return effectiveProperties;
+        }
         return properties;
     }
 
     public void setProperties(ArrayList<String> properties) {
         this.properties = properties;
+    }
+
+    /** 判断 RainMaker 原始模型是否声明某属性，不受 Android UI 门禁影响。 */
+    public boolean hasBaseProperty(String property) {
+        return properties != null && properties.contains(property);
+    }
+
+    /**
+     * 设置主机配置页的有效写权限投影。
+     *
+     * @param applied 是否启用主机专用门禁；false 表示完全使用 RainMaker 原始 properties。
+     * @param allowed 门禁启用时是否允许向通用 UI 暴露 WRITE。
+     */
+    public void setHostWriteGate(boolean applied, boolean allowed) {
+        hostWriteGateApplied = applied;
+        hostWriteAllowed = allowed;
+    }
+
+    public boolean isHostWriteGateApplied() {
+        return hostWriteGateApplied;
+    }
+
+    public boolean isHostWriteAllowed() {
+        return hostWriteAllowed;
     }
 
     public int getMinBounds() {
@@ -195,6 +249,8 @@ public class Param implements Parcelable, Comparable {
         isDynamicParam = in.readByte() != 0;
         isSelected = in.readByte() != 0;
         dependencies = in.readString();
+        hostWriteGateApplied = in.readByte() != 0;
+        hostWriteAllowed = in.readByte() != 0;
     }
 
     public static final Creator<Param> CREATOR = new Creator<Param>() {
@@ -231,6 +287,8 @@ public class Param implements Parcelable, Comparable {
         dest.writeByte((byte) (isDynamicParam ? 1 : 0));
         dest.writeByte((byte) (isSelected ? 1 : 0));
         dest.writeString(dependencies);
+        dest.writeByte((byte) (hostWriteGateApplied ? 1 : 0));
+        dest.writeByte((byte) (hostWriteAllowed ? 1 : 0));
     }
 
     @Override
@@ -267,7 +325,9 @@ public class Param implements Parcelable, Comparable {
                 && compare.value == this.value
                 && compare.switchStatus == this.switchStatus
                 && compare.isDynamicParam == this.isDynamicParam
-                && compare.isSelected == this.isSelected) {
+                && compare.isSelected == this.isSelected
+                && compare.hostWriteGateApplied == this.hostWriteGateApplied
+                && compare.hostWriteAllowed == this.hostWriteAllowed) {
             return 0;
         }
         return 1;
