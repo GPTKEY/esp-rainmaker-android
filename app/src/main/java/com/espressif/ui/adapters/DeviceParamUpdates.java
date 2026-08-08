@@ -22,6 +22,7 @@ import com.espressif.NetworkApiManager;
 import com.espressif.cloudapi.ApiResponseListener;
 import com.espressif.ui.Utils;
 import com.espressif.ui.activities.EspDeviceActivity;
+import com.espressif.ui.hostconfig.HostConfigurationPolicy;
 import com.espressif.ui.models.ParamUpdateRequest;
 import com.google.gson.JsonObject;
 
@@ -77,6 +78,20 @@ public class DeviceParamUpdates {
     }
 
     public void processSliderChange(String paramName, Number sliderValue) {
+
+        /*
+         * LowThreshold / HighThreshold 是关联配置。
+         *
+         * 现有 ParamAdapter 在 continuous update 模式下会在 onSeeking() 中持续调用本函数，
+         * 同时在 onStopTrackingTouch() 中始终调用 clearQueueAndSendLastValue() 提交最终值。
+         * 因此这里仅针对两项液位阈值忽略拖动过程中的中间值，既保留原 Slider 体验，也保证
+         * 每次手指释放只发送最终值，避免连续产生 low >= high 等无意义的瞬时请求。
+         *
+         * 其它 Slider 完全保持 RainMaker 原有节流队列行为。
+         */
+        if (HostConfigurationPolicy.isThresholdParam(paramName)) {
+            return;
+        }
 
         long currentTime = System.currentTimeMillis();
         long lastRequestTime = 0;
