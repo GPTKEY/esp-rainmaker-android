@@ -86,13 +86,13 @@ public class HostConfigurationPolicyTest {
     }
 
     @Test
-    public void thresholds_useSingleSubmitTextEditorAndPeerAwareBounds() {
+    public void thresholds_keepSliderAndUsePeerAwareBounds() {
         Fixture fixture = hostFixture(true, true, HostConfigurationPolicy.WORK_MODE_FILL, 20, 80);
 
         HostConfigurationPolicy.applyEffectiveWriteGate(fixture.devices);
 
-        assertEquals(AppConstants.UI_TYPE_TEXT, fixture.lowThreshold.getUiType());
-        assertEquals(AppConstants.UI_TYPE_TEXT, fixture.highThreshold.getUiType());
+        assertEquals(AppConstants.UI_TYPE_SLIDER, fixture.lowThreshold.getUiType());
+        assertEquals(AppConstants.UI_TYPE_SLIDER, fixture.highThreshold.getUiType());
         assertEquals(0, fixture.lowThreshold.getMinBounds());
         assertEquals(79, fixture.lowThreshold.getMaxBounds());
         assertEquals(21, fixture.highThreshold.getMinBounds());
