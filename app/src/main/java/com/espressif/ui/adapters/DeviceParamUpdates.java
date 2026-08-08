@@ -328,13 +328,18 @@ public class DeviceParamUpdates {
         Log.d(TAG, "sendParamUpdates called with body: " + body.toString());
 
         EspNode currentNode = espApp.nodeMap.get(nodeId);
+        boolean hostConfigurationModel = false;
         if (currentNode != null) {
+            ArrayList<com.espressif.ui.models.Device> currentDevices = currentNode.getDevices();
+            HostConfigurationPolicy.Snapshot snapshot = HostConfigurationPolicy.snapshot(currentDevices);
+            hostConfigurationModel = snapshot.hostModel;
+
             HostConfigurationPolicy.WriteDecision decision = HostConfigurationPolicy.evaluateWriteRequest(
-                    currentNode.getDevices(), body);
+                    currentDevices, body);
             if (!decision.allowed) {
                 Log.w(TAG, "Host configuration write blocked before network request, reason="
                         + decision.reason + ", param=" + decision.paramName);
-                isWait = false;
+                finishRequest();
                 if (listener != null) {
                     listener.onResponseFailure(new IllegalStateException(
                             "Host configuration write blocked: " + decision.reason));
@@ -348,20 +353,29 @@ public class DeviceParamUpdates {
             ((EspDeviceActivity) context).setLastUpdateRequestTime(System.currentTimeMillis());
         }
 
+        final boolean shouldRefreshAuthoritativeParams = hostConfigurationModel;
         networkApiManager.updateParamValue(nodeId, body, new ApiResponseListener() {
 
             @Override
             public void onSuccess(Bundle data) {
-                isWait = false;
+                /*
+                 * 先把写 ACK 交给原监听器，让现有控件完成 loading/交互状态收尾；随后再立即读取
+                 * 权威 Param。这样即使原监听器做了 optimistic update，后续回读仍会覆盖成主机真值。
+                 */
                 if (listener != null) {
                     listener.onSuccess(data);
                 }
-                processParamRequests();
+
+                if (shouldRefreshAuthoritativeParams) {
+                    refreshAuthoritativeParamsAfterWrite();
+                } else {
+                    finishRequestAndContinue();
+                }
             }
 
             @Override
             public void onResponseFailure(Exception exception) {
-                isWait = false;
+                finishRequest();
                 if (listener != null) {
                     listener.onResponseFailure(exception);
                 }
@@ -370,12 +384,72 @@ public class DeviceParamUpdates {
 
             @Override
             public void onNetworkFailure(Exception exception) {
-                isWait = false;
+                finishRequest();
                 if (listener != null) {
                     listener.onNetworkFailure(exception);
                 }
                 processParamRequests();
             }
         });
+    }
+
+    /**
+     * 主机配置写 ACK 后立即复用现有 NetworkApiManager 读取链回读权威 Param。
+     *
+     * <p>Cloud 路径的 ApiManager.getParamsValues() 会把返回值写回 espApp.nodeMap；Local/BLE
+     * 路径也沿用项目现有解析逻辑。这里不创建第二份配置缓存。</p>
+     *
+     * <p>回读失败不把已经成功的写请求伪装成“写失败”：记录告警并释放队列，现有周期刷新仍会
+     * 继续收敛。底层 NetworkApiManager/Retrofit 负责已有网络超时与 fallback。</p>
+     */
+    private void refreshAuthoritativeParamsAfterWrite() {
+        networkApiManager.getParamsValues(nodeId, new ApiResponseListener() {
+
+            @Override
+            public void onSuccess(Bundle data) {
+                Log.d(TAG, "Authoritative host params refreshed after write ACK");
+                refreshDeviceActivityFromCurrentNode();
+                finishRequestAndContinue();
+            }
+
+            @Override
+            public void onResponseFailure(Exception exception) {
+                Log.w(TAG, "Host param write succeeded but authoritative readback failed: "
+                        + exception.getMessage());
+                finishRequestAndContinue();
+            }
+
+            @Override
+            public void onNetworkFailure(Exception exception) {
+                Log.w(TAG, "Host param write succeeded but authoritative readback network failed: "
+                        + exception.getMessage());
+                finishRequestAndContinue();
+            }
+        });
+    }
+
+    /**
+     * 回读完成后直接复用 EspDeviceActivity 已有 updateViewTask 刷新当前页面。
+     *
+     * <p>不修改 Activity 架构，也不引入新的 EventBus 事件。</p>
+     */
+    private void refreshDeviceActivityFromCurrentNode() {
+        if (!(context instanceof EspDeviceActivity)) {
+            return;
+        }
+
+        EspDeviceActivity activity = (EspDeviceActivity) context;
+        activity.runOnUiThread(activity.getUpdateViewTask());
+    }
+
+    /** 释放唯一 in-flight 标记。 */
+    private void finishRequest() {
+        isWait = false;
+    }
+
+    /** 释放当前请求并继续调度下一项。 */
+    private void finishRequestAndContinue() {
+        finishRequest();
+        processParamRequests();
     }
 }
