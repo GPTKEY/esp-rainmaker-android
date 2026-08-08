@@ -26,6 +26,7 @@ import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
 import com.espressif.AppConstants;
+import com.espressif.ui.hostconfig.HostConfigurationPolicy;
 
 import java.util.ArrayList;
 
@@ -230,12 +231,20 @@ public class EspNode implements Parcelable {
         this.timeStampOfStatus = timeStampOfStatus;
     }
 
+    /**
+     * 返回节点设备列表前，重新根据当前 CloudOnline / RemoteControlEnabled / WorkMode
+     * 计算主机配置 Param 的有效写权限。
+     *
+     * <p>这是只读 UI 投影，不改变 RainMaker 原始 RW 契约，也不代替主机 AppCore 的最终门禁。</p>
+     */
     public ArrayList<Device> getDevices() {
+        HostConfigurationPolicy.applyEffectiveWriteGate(devices);
         return devices;
     }
 
     public void setDevices(ArrayList<Device> devices) {
         this.devices = devices;
+        HostConfigurationPolicy.applyEffectiveWriteGate(this.devices);
     }
 
     public ArrayList<Param> getAttributes() {
@@ -499,6 +508,7 @@ public class EspNode implements Parcelable {
         isController = in.readByte() != 0;
         nodeStatus = in.readInt();
         sharedGroupIds = in.createStringArrayList();
+        HostConfigurationPolicy.applyEffectiveWriteGate(devices);
     }
 
     public static final Creator<EspNode> CREATOR = new Creator<EspNode>() {
