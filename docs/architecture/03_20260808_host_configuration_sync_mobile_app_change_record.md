@@ -8,7 +8,7 @@
 
 ## 1. 本轮实现原则
 
-本轮继续沿用 ESP RainMaker Android 现有：
+本轮继续沿用 ESP RainMaker Android 现有链路：
 
 ```text
 EspNode -> Device -> Param -> ParamAdapter -> DeviceParamUpdates -> NetworkApiManager
@@ -16,7 +16,13 @@ EspNode -> Device -> Param -> ParamAdapter -> DeviceParamUpdates -> NetworkApiMa
 
 不新建第二套设备状态仓库，不重做 Activity，不改变首次 BLE/Wi-Fi 配网流程，也不改变 Cloud / Local / BLE 路由优先级。
 
-主机仍然是配置和安全状态的唯一权威；Android 只做展示、交互门禁、明显非法请求预检和请求串行化。
+主机仍然是配置和安全状态的唯一权威；Android 只负责：
+
+1. 展示主机发布的 Param；
+2. 根据主机状态派生当前可编辑性；
+3. 在网络发送前再次做明显非法请求预检；
+4. 串行化 Param 写请求；
+5. 写 ACK 后回读主机权威值并刷新现有页面。
 
 ---
 
@@ -37,7 +43,7 @@ EspNode -> Device -> Param -> ParamAdapter -> DeviceParamUpdates -> NetworkApiMa
 - `LowThreshold`
 - `HighThreshold`
 
-已确认并固定的 `WorkMode` 协议值：
+已经从主机代码确认并固定的 WorkMode 协议值：
 
 ```text
 FILL   = 1
@@ -48,13 +54,15 @@ MANUAL = 4
 
 策略层负责：
 
-1. 从当前 Node 的全部 Device/Param 生成只读 `Snapshot`；
-2. 派生 `CloudOnline && RemoteControlEnabled`；
-3. 缺少关键状态时 fail-closed；
-4. `RemoteControlEnabled` 始终禁止手机写入；
-5. `OutputState` 仅 `MANUAL(4)` 允许手机写入；
-6. Low/High 按当前另一阈值计算有效范围；
-7. `evaluateWriteRequest()` 在真正发送前再次检查权限、模式、只读属性和阈值组合。
+- 生成当前 Node 的只读 `Snapshot`；
+- 派生 `CloudOnline && RemoteControlEnabled`；
+- 关键状态缺失时 fail-closed；
+- `RemoteControlEnabled` 永远禁止手机写入；
+- `OutputState` 仅 `MANUAL(4)` 允许手机写入；
+- Low/High 根据当前另一阈值计算有效范围；
+- `evaluateWriteRequest()` 在真正发送前复核权限、模式、只读属性和阈值组合。
+
+主机 AppCore 仍执行最终业务和安全校验，Android 预检不能替代主机校验。
 
 ---
 
@@ -75,10 +83,10 @@ hostBoundsOverrideApplied / hostMinBounds / hostMaxBounds
 
 - 不删除 RainMaker 原始 `properties`；
 - 不覆盖设备原始 `min/max`；
-- 权限或阈值变化后可以重新计算并恢复；
+- 权限或阈值变化后可重新计算并恢复；
 - copy constructor、Parcelable、compareTo 均包含投影状态。
 
-此前试验性的 `hostUiTypeOverride` 已删除。阈值仍保留原 Slider，避免为了第一阶段增加无用 UI 状态。
+此前试验性的 `hostUiTypeOverride` 已删除。阈值继续使用现有 Slider，避免引入没有必要的第二种 UI 状态。
 
 ---
 
@@ -88,25 +96,25 @@ hostBoundsOverrideApplied / hostMinBounds / hostMaxBounds
 
 `app/src/main/java/com/espressif/ui/models/EspNode.java`
 
-在：
-
-- `getDevices()`
-- `setDevices()`
-- Parcel 恢复后
-
-调用：
+在以下路径统一执行：
 
 ```text
 HostConfigurationPolicy.applyEffectiveWriteGate(devices)
 ```
 
-因此当前 `RemoteControlEnabled / CloudOnline / WorkMode / Low / High` 变化后，现有页面下次读取 Node 即重新计算可写状态，不需要新增主机专用 Activity。
+调用位置：
+
+- `getDevices()`；
+- `setDevices()`；
+- Parcel 恢复后。
+
+因此 `RemoteControlEnabled / CloudOnline / WorkMode / Low / High` 变化后，现有页面下次读取 Node 即重新计算有效写权限和阈值范围，不需要新增主机专用 Activity。
 
 ---
 
 ### APP-HOSTCFG-004：远程写 UI 门禁
 
-规则：
+基础规则：
 
 ```text
 CloudOnline == true
@@ -114,9 +122,9 @@ AND
 RemoteControlEnabled == true
 ```
 
-才向现有通用 UI 暴露主机可写 Param 的 `WRITE`。
+主机可写 Param 才向现有通用 UI 暴露 `WRITE`。
 
-额外门禁：
+额外规则：
 
 ```text
 RemoteControlEnabled -> 永远只读
@@ -142,9 +150,9 @@ OutputState          -> 仅 MANUAL(4) 可写
 4 -> 手动 / Manual
 ```
 
-Adapter 内部 `getItem()` 仍返回 `"1" ~ "4"`，因此现有 `ParamAdapter` 的 `Integer.parseInt(newValue)` 不变，发送到主机的仍是稳定整数协议。
+Adapter 内部 `getItem()` 仍返回 `"1" ~ "4"`，现有 `ParamAdapter` 的 `Integer.parseInt(newValue)` 保持不变，因此发给主机的仍是稳定整数协议。
 
-`item_param.xml` 已核对：`card_spinner` 与 `tv_spinner_name` 位于同一 `rl_card_drop_down` 容器，当前识别方式可以直接命中，不增加额外层级遍历。
+已经核对 `item_param.xml`：`card_spinner` 与 `tv_spinner_name` 位于同一个 `rl_card_drop_down` 容器，无需增加额外祖先遍历。
 
 ---
 
@@ -154,7 +162,7 @@ Adapter 内部 `getItem()` 仍返回 `"1" ~ "4"`，因此现有 `ParamAdapter` �
 
 `app/src/main/java/com/espressif/ui/adapters/DeviceParamUpdates.java`
 
-最终采用的方案不是 TEXT 编辑框，而是继续使用原 Slider：
+最终方案继续复用原 Slider：
 
 - `onSeeking()` 产生的 `LowThreshold / HighThreshold` 中间值在 `processSliderChange()` 中直接忽略；
 - `onStopTrackingTouch()` 原有 `clearQueueAndSendLastValue()` 保留；
@@ -169,7 +177,7 @@ HighThreshold : max(设备原始 min, Low + 1) .. min(设备原始 max, 100)
 
 若当前主机阈值缺失或本身非法，则 Android 先只读，等待权威值恢复。
 
-这个方案比新建 Low/High 双字段 Draft/Apply 卡片改动更小，第一阶段不做过度设计。
+这个方案比新增 Low/High 双字段 Draft/Apply 卡片改动更小，不为第一阶段过度设计。
 
 ---
 
@@ -179,13 +187,13 @@ HighThreshold : max(设备原始 min, Low + 1) .. min(设备原始 max, 100)
 
 `app/src/main/java/com/espressif/ui/adapters/DeviceParamUpdates.java`
 
-所有现有非 Matter Param 最终仍汇聚到：
+所有现有非 Matter Param 最终继续汇聚到：
 
 ```text
 sendParamUpdates()
 ```
 
-在调用 `NetworkApiManager.updateParamValue()` 前，重新读取当前：
+在调用 `NetworkApiManager.updateParamValue()` 前，重新读取：
 
 ```text
 espApp.nodeMap[nodeId].getDevices()
@@ -197,16 +205,7 @@ espApp.nodeMap[nodeId].getDevices()
 HostConfigurationPolicy.evaluateWriteRequest(...)
 ```
 
-因此即使 UI 已显示可写，但请求排队期间主机刚好：
-
-- 关闭远控；
-- 云状态变为离线；
-- 从 MANUAL 切到其它模式；
-- 修改了另一液位阈值；
-
-旧请求也会在真正网络发送前再次被拦截。
-
-主机 AppCore 仍保留最终校验，Android 预检不能替代主机安全逻辑。
+因此即使 UI 曾经显示可写，但请求排队期间主机刚好关闭远控、掉云、切出 MANUAL 或修改另一阈值，旧请求也会在真正网络发送前再次被拦截。
 
 ---
 
@@ -216,18 +215,16 @@ HostConfigurationPolicy.evaluateWriteRequest(...)
 
 `app/src/main/java/com/espressif/ui/adapters/DeviceParamUpdates.java`
 
-原实现存在一个小的并发窗口：请求提交到单线程 Executor 后，要等 worker 真正执行才设置 `isWait`，UI 线程可能在这段时间再次提交另一个网络请求。
-
-本轮修正：
+修复内容：
 
 1. 在提交 Executor 前先预约 `isWait=true`；
-2. Param 请求预约后立即 `return`，同一轮不再继续调度 Slider；
+2. Param 请求预约后立即返回，同一轮不再继续调度 Slider；
 3. Slider 只有成功预约后才从队列 `poll()`；
 4. 已有 in-flight 请求时不提前 poll Slider，避免丢值；
 5. 预检拦截、响应失败、网络失败都会释放 `isWait` 并继续下一项；
-6. Iterator 删除空 Slider 队列使用 `iterator.remove()`，避免遍历时直接修改 Map。
+6. Iterator 删除空 Slider 队列使用 `iterator.remove()`，避免遍历期间直接修改 Map。
 
-没有新增线程、任务或队列，继续复用原单线程 Executor。
+没有新增工作线程、任务或第二个发送队列，继续复用原单线程 Executor。
 
 ---
 
@@ -235,7 +232,7 @@ HostConfigurationPolicy.evaluateWriteRequest(...)
 
 `bool/boolean` Param 优先使用现有解析链维护的 `switchStatus`。
 
-原因：BLE 参数刷新可能只更新 `switchStatus`，历史 `labelValue` 可能滞后；若优先读字符串会把新 Boolean 真值覆盖掉。
+原因：BLE 参数刷新可能只更新 `switchStatus`，历史 `labelValue` 可能滞后；若优先读取字符串，会把新 Boolean 真值覆盖掉。
 
 非 Boolean 类型才回退解析 `labelValue`。
 
@@ -248,7 +245,7 @@ HostConfigurationPolicy.evaluateWriteRequest(...)
 - `app/src/main/res/values/strings_host_configuration.xml`
 - `app/src/main/res/values-zh-rCN/strings_host_configuration.xml`
 
-当前用于 WorkMode 显示，并预留统一权限/错误提示文案。
+当前用于 WorkMode 本地化显示，并预留统一权限/错误提示文案。
 
 ---
 
@@ -258,7 +255,7 @@ HostConfigurationPolicy.evaluateWriteRequest(...)
 
 `app/src/test/java/com/espressif/ui/hostconfig/HostConfigurationPolicyTest.java`
 
-覆盖至少：
+覆盖：
 
 1. 非主机设备不受影响；
 2. 远控关闭时主机写 UI fail-closed；
@@ -288,7 +285,7 @@ HostConfigurationPolicy.evaluateWriteRequest(...)
 -> 上传 debug APK artifact
 ```
 
-仅监听：
+只监听：
 
 `codex/host-configuration-sync-mobile-app`
 
@@ -296,38 +293,95 @@ HostConfigurationPolicy.evaluateWriteRequest(...)
 
 ---
 
-## 3. 当前明确未完成 / 待确认
+### APP-HOSTCFG-013：写 ACK 后权威 Param 回读
 
-### 3.1 写 ACK 后立即权威回读
+文件：
 
-现有应用已经每约 5 秒通过 `getParamsValues()` 刷新设备 Param，且 Cloud/Local/BLE 的读取链都会更新 `espApp.nodeMap`。
+`app/src/main/java/com/espressif/ui/adapters/DeviceParamUpdates.java`
 
-开发计划中更严格的：
+主机配置写入成功后的顺序调整为：
 
 ```text
 write ACK
--> 立即 getParamsValues()
--> 用主机返回值覆盖手机临时值
--> UI 立即收敛
+-> 先调用原控件 listener.onSuccess() 完成 loading/optimistic UI 收尾
+-> 再调用 NetworkApiManager.getParamsValues(nodeId)
+-> 现有解析链覆盖 espApp.nodeMap 中的 Param
+-> EspDeviceActivity.updateViewTask 立即刷新当前页面
+-> 释放 isWait
+-> 继续下一条写请求
 ```
 
-当前尚未单独接入。
+这样可以保证原控件即使先显示了手机请求值，后续权威回读仍会最后覆盖成主机实际接受的值。
 
-原因：现有 `ParamAdapter` 在 write success callback 内还会写入一次请求值；若简单把 `getParamsValues()` 插在 callback 前面，会被后续 optimistic update 再覆盖，必须明确调整回调顺序或增加一个很小的权威刷新入口后再做。
+回读失败不会把已经成功的写请求伪装成“写失败”；只记录告警、释放队列，并由项目原有周期刷新继续收敛。
 
-状态：**待确认，不能宣称已完成。**
-
-### 3.2 Low/High 双字段 Draft/Apply 组合控件
-
-当前是两个 Slider，各自在释放时单次提交，并由另一当前阈值限制可选范围。
-
-如果后续 UX 明确要求“一次同时修改两个阈值，再统一 Apply”，再增加专用组合控件；第一阶段不提前实现。
-
-状态：**可选增强，不阻塞当前基础闭环。**
+页面退出后使用 `isFinishing()/isDestroyed()` 防护，不对已经销毁的 Activity 投递 UI 刷新。
 
 ---
 
-## 4. 调用顺序
+### APP-HOSTCFG-014：BLE proxy 上报与权威回读串行化
+
+文件：
+
+`app/src/main/java/com/espressif/ui/adapters/DeviceParamUpdates.java`
+
+已核对现有 BLE 流程：
+
+```text
+BLE set_params 成功
+-> NetworkApiManager 回调写成功
+-> reportParamsToProxy()
+-> BleLocalControlManager.getParamsWithTimestamp()
+```
+
+`BleLocalControlManager` 已用 `proxyReadInProgress` 防止 `getParamsWithTimestamp()` 与普通 `queryParams()` 并发，因此手机端不能在 BLE ACK 回调内无条件立刻再读一次。
+
+本轮采用有限、非阻塞等待：
+
+```text
+BLE write ACK
+-> 延迟 100 ms，让 proxy read 有机会启动
+-> 每 250 ms 检查 isProxyReadInProgress(nodeId)
+-> BLE 空闲后立即执行权威回读
+-> 最多检查 12 次，约 3 秒
+```
+
+如果约 3 秒后 BLE proxy 仍忙：
+
+- 不继续占用 Param 写队列；
+- 不并发抢占 BLE 读通道；
+- 跳过本次立即回读；
+- 依靠现有周期刷新继续收敛。
+
+如果等待期间 BLE 断开，则交回 `NetworkApiManager` 按项目原有策略选择可用读取路径。
+
+该等待使用主线程 `Handler.postDelayed()`，不阻塞线程。
+
+---
+
+## 3. 当前未实现 / 待确认项
+
+### 3.1 Low/High 双字段 Draft/Apply 专用卡片
+
+当前两个阈值继续使用原 Slider，各自在手指释放时单次提交，并由另一当前权威阈值限制范围。
+
+如果后续 UX 明确要求：
+
+```text
+同时修改 Low + High
+-> 本地预览
+-> 一次 Apply
+```
+
+再新增专用组合控件。
+
+状态：**可选 UX 增强，不阻塞第一阶段配置闭环。**
+
+除此以外，开发计划第一阶段核心链路已落地；是否继续增加组合控件应以真机使用体验决定，当前不提前扩展。
+
+---
+
+## 4. 当前调用顺序
 
 ```text
 主机 RainMaker Param
@@ -340,14 +394,24 @@ HostConfigurationPolicy.applyEffectiveWriteGate()
         ↓
 现有 ParamAdapter 显示/交互
         ↓
-DeviceParamUpdates 队列
+DeviceParamUpdates 单线程队列
         ↓
 HostConfigurationPolicy.evaluateWriteRequest()
         ↓
-NetworkApiManager
+NetworkApiManager.updateParamValue()
         ↓
 主机 AppCore 最终校验
+        ↓
+写 ACK
+        ↓
+NetworkApiManager.getParamsValues()
+        ↓
+主机权威 Param 覆盖 espApp.nodeMap
+        ↓
+EspDeviceActivity.updateViewTask
 ```
+
+BLE 路径在写 ACK 与权威回读之间额外串行等待已有 proxy read 完成。
 
 ---
 
@@ -374,44 +438,36 @@ NetworkApiManager
 5. Low 最大值始终不超过 High-1；High 最小值始终不低于 Low+1；
 6. 拖动 Low/High 过程中不连续发请求，释放时只发一次最终值；
 7. 请求排队后立即在主机关闭远控或切出 MANUAL，旧请求应在 Android 最终发送门禁被拒绝；
-8. 主机本机修改 WorkMode/阈值，App 后续参数刷新必须回到主机权威值。
+8. 写成功但主机对值进行了校正时，App 应在权威回读后显示主机最终值；
+9. BLE 本地控制写入时，不应出现 proxy read 与普通 get_params 并发；
+10. 主机本机修改 WorkMode/阈值后，App 参数刷新必须回到主机权威值。
 
 ---
 
-## 6. 回滚边界
+## 6. 风险与边界
 
-本轮没有修改：
-
-- 首次 BLE 配网；
-- 已有 Wi-Fi 复用流程；
-- Cloud / Local / BLE 路由优先级；
-- `EspDeviceActivity` 页面架构；
-- 主机端业务代码。
-
-主要回滚文件：
-
-- `HostConfigurationPolicy.java`
-- `Param.java`
-- `EspNode.java`
-- `EspDropDown.java`
-- `DeviceParamUpdates.java`
-- 两组 strings 资源
-- 本轮测试与 CI 文件
+- Android 预检只是体验与竞态保护，主机 AppCore 必须继续做最终校验；
+- BLE 立即回读有约 3 秒等待上限，超时后主动降级为原周期刷新；
+- 本轮没有修改首次 BLE 配网、已有 Wi-Fi 复用流程和 Cloud / Local / BLE 路由优先级；
+- 没有新建业务线程、第二写队列或第二配置状态仓库；
+- 未修改主机端业务代码。
 
 ---
 
 ## 7. 当前结论
 
-第一阶段已经形成：
+第一阶段已经形成完整基础闭环：
 
 ```text
-UI 门禁
+UI 权限门禁
 + 最终发送二次门禁
 + WorkMode 稳定协议本地化
 + OutputState MANUAL 门禁
 + Low/High 关联范围
 + 阈值只发送最终值
-+ 写请求串行化
++ Param 写请求严格串行
++ 写 ACK 后权威回读
++ BLE proxy/readback 串行保护
 ```
 
-剩余最主要的功能缺口只有一个：**写 ACK 后立即进行权威 Param 回读并主动刷新 UI**。该项应作为下一小步单独实现，不需要重构现有页面或网络架构。
+后续不应继续扩大架构；下一步应以 CI、真机联调结果为依据，只修复实际暴露的问题。
