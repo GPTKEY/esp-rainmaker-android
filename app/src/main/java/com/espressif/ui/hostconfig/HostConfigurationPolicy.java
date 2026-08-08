@@ -31,7 +31,7 @@ import java.util.Map;
  * <ul>
  *     <li>只解析 RainMaker 已经下发到 {@link Device}/{@link Param} 的稳定产品参数；</li>
  *     <li>根据 CloudOnline + RemoteControlEnabled 计算“当前 UI 是否允许发起写请求”；</li>
- *     <li>把液位阈值投影为一次确认式编辑，并按当前另一阈值收紧有效范围；</li>
+ *     <li>按当前另一阈值收紧 Low/High Slider 的有效范围；</li>
  *     <li>提供写请求预检函数，供后续所有写入口统一接入；</li>
  *     <li>不保存业务状态、不执行泵控制、不替代主机 AppCore 的最终安全校验。</li>
  * </ul>
@@ -184,7 +184,7 @@ public final class HostConfigurationPolicy {
     }
 
     /**
-     * 把主机状态投影到 Param 的“有效写权限 / 有效阈值编辑范围 / 有效 UI 类型”。
+     * 把主机状态投影到 Param 的“有效写权限 / 有效阈值编辑范围”。
      *
      * <p>所有投影均为可逆的临时字段，不删除 RainMaker 原始 properties、bounds、uiType。
      * 非主机模型会清空投影并完全保持上游行为。</p>
@@ -211,7 +211,7 @@ public final class HostConfigurationPolicy {
                     continue;
                 }
 
-                // 每次从当前权威状态重新投影，先清理上一次阈值 UI/bounds 覆盖。
+                // 每次从当前权威状态重新投影，先清理上一次阈值 bounds/UI 覆盖。
                 param.setHostBoundsOverride(false, 0, 0);
                 param.setHostUiTypeOverride(null);
 
@@ -230,8 +230,6 @@ public final class HostConfigurationPolicy {
                             && snapshot.workModeKnown
                             && snapshot.workMode == WORK_MODE_MANUAL;
                 } else if (PARAM_LOW_THRESHOLD.equals(param.getName())) {
-                    // 阈值不使用连续 Slider，改成点击编辑 -> OK 后单次发送。
-                    param.setHostUiTypeOverride(AppConstants.UI_TYPE_TEXT);
                     if (thresholdPairValid) {
                         int effectiveMin = Math.max(param.getBaseMinBounds(), 0);
                         int effectiveMax = Math.min(param.getBaseMaxBounds(), currentHigh - 1);
@@ -245,7 +243,6 @@ public final class HostConfigurationPolicy {
                         allowed = false;
                     }
                 } else if (PARAM_HIGH_THRESHOLD.equals(param.getName())) {
-                    param.setHostUiTypeOverride(AppConstants.UI_TYPE_TEXT);
                     if (thresholdPairValid) {
                         int effectiveMin = Math.max(param.getBaseMinBounds(), currentLow + 1);
                         int effectiveMax = Math.min(param.getBaseMaxBounds(), 100);
@@ -363,7 +360,7 @@ public final class HostConfigurationPolicy {
         return WriteDecision.allow();
     }
 
-    /** 阈值属于成对配置；当前实现用一次确认式编辑避免连续 Slider 中间写。 */
+    /** 阈值属于成对配置；continuous update 的中间值由 DeviceParamUpdates 屏蔽。 */
     public static boolean isThresholdParam(String paramName) {
         return PARAM_LOW_THRESHOLD.equals(paramName) || PARAM_HIGH_THRESHOLD.equals(paramName);
     }
