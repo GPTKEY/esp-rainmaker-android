@@ -33,7 +33,8 @@ import java.util.Map;
  * <ul>
  *     <li>只解析 RainMaker 已经下发到 {@link Device}/{@link Param} 的稳定产品参数；</li>
  *     <li>根据 CloudOnline + RemoteControlEnabled 计算“当前 UI 是否允许发起写请求”；</li>
- *     <li>在真正发请求之前再次校验只读权限、MANUAL 输出门禁、工作模式枚举和液位阈值组合；</li>
+ *     <li>把液位阈值投影为一次确认式编辑，并按当前另一阈值收紧有效范围；</li>
+ *     <li>提供写请求预检函数，供后续所有写入口统一接入；</li>
  *     <li>不保存业务状态、不执行泵控制、不替代主机 AppCore 的最终安全校验。</li>
  * </ul>
  *
@@ -185,10 +186,10 @@ public final class HostConfigurationPolicy {
     }
 
     /**
-     * 把主机远控权限投影到 Param 的“有效写权限”。
+     * 把主机状态投影到 Param 的“有效写权限 / 有效阈值编辑范围 / 有效 UI 类型”。
      *
-     * <p>这里只影响 {@link Param#getProperties()} 对 UI 暴露的 WRITE 属性，不删除 Param 原始属性，
-     * 所以 RemoteControlEnabled 或 WorkMode 后续变化后可以无损恢复控件。非主机模型完全不受影响。</p>
+     * <p>所有投影均为可逆的临时字段，不删除 RainMaker 原始 properties、bounds、uiType。
+     * 非主机模型会清空投影并完全保持上游行为。</p>
      */
     public static void applyEffectiveWriteGate(ArrayList<Device> devices) {
         if (devices == null) {
@@ -196,6 +197,13 @@ public final class HostConfigurationPolicy {
         }
 
         Snapshot snapshot = snapshot(devices);
+        Param currentLowParam = findParam(devices, PARAM_LOW_THRESHOLD);
+        Param currentHighParam = findParam(devices, PARAM_HIGH_THRESHOLD);
+        boolean thresholdModelComplete = currentLowParam != null && currentHighParam != null;
+        int currentLow = thresholdModelComplete ? safeIntegerValue(currentLowParam) : 0;
+        int currentHigh = thresholdModelComplete ? safeIntegerValue(currentHighParam) : 0;
+        boolean thresholdPairValid = thresholdModelComplete && isValidThresholdPair(currentLow, currentHigh);
+
         for (Device device : devices) {
             if (device == null || device.getParams() == null) {
                 continue;
@@ -204,6 +212,10 @@ public final class HostConfigurationPolicy {
                 if (param == null) {
                     continue;
                 }
+
+                // 每次从当前权威状态重新投影，先清理上一次阈值 UI/bounds 覆盖。
+                param.setHostBoundsOverride(false, 0, 0);
+                param.setHostUiTypeOverride(null);
 
                 if (!snapshot.hostModel) {
                     param.setHostWriteGate(false, true);
@@ -219,6 +231,34 @@ public final class HostConfigurationPolicy {
                     allowed = allowed
                             && snapshot.workModeKnown
                             && snapshot.workMode == WORK_MODE_MANUAL;
+                } else if (PARAM_LOW_THRESHOLD.equals(param.getName())) {
+                    // 阈值不使用连续 Slider，改成点击编辑 -> OK 后单次发送。
+                    param.setHostUiTypeOverride(AppConstants.UI_TYPE_TEXT);
+                    if (thresholdPairValid) {
+                        int effectiveMin = Math.max(param.getBaseMinBounds(), 0);
+                        int effectiveMax = Math.min(param.getBaseMaxBounds(), currentHigh - 1);
+                        if (effectiveMin <= effectiveMax) {
+                            param.setHostBoundsOverride(true, effectiveMin, effectiveMax);
+                        } else {
+                            allowed = false;
+                        }
+                    } else {
+                        // 当前权威阈值本身非法或缺失时，Android 先只读，等待主机纠正/重新上报。
+                        allowed = false;
+                    }
+                } else if (PARAM_HIGH_THRESHOLD.equals(param.getName())) {
+                    param.setHostUiTypeOverride(AppConstants.UI_TYPE_TEXT);
+                    if (thresholdPairValid) {
+                        int effectiveMin = Math.max(param.getBaseMinBounds(), currentLow + 1);
+                        int effectiveMax = Math.min(param.getBaseMaxBounds(), 100);
+                        if (effectiveMin <= effectiveMax) {
+                            param.setHostBoundsOverride(true, effectiveMin, effectiveMax);
+                        } else {
+                            allowed = false;
+                        }
+                    } else {
+                        allowed = false;
+                    }
                 }
 
                 // 仅对协议本身声明为可写的 Param 隐藏 WRITE；只读 Param 继续保持只读。
@@ -325,7 +365,7 @@ public final class HostConfigurationPolicy {
         return WriteDecision.allow();
     }
 
-    /** 阈值拖动属于成对配置，禁止连续发送中间值；仅在用户停止拖动时提交最终值。 */
+    /** 阈值属于成对配置；当前实现用一次确认式编辑避免连续 Slider 中间写。 */
     public static boolean isThresholdParam(String paramName) {
         return PARAM_LOW_THRESHOLD.equals(paramName) || PARAM_HIGH_THRESHOLD.equals(paramName);
     }
