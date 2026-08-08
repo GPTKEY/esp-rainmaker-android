@@ -14,8 +14,6 @@
 
 package com.espressif.ui.hostconfig;
 
-import android.text.TextUtils;
-
 import com.espressif.AppConstants;
 import com.espressif.ui.models.Device;
 import com.espressif.ui.models.Param;
@@ -381,7 +379,7 @@ public final class HostConfigurationPolicy {
     }
 
     public static Param findParam(ArrayList<Device> devices, String paramName) {
-        if (devices == null || TextUtils.isEmpty(paramName)) {
+        if (devices == null || isEmpty(paramName)) {
             return null;
         }
         for (Device device : devices) {
@@ -394,7 +392,7 @@ public final class HostConfigurationPolicy {
     }
 
     private static Device findDevice(ArrayList<Device> devices, String deviceName) {
-        if (devices == null || TextUtils.isEmpty(deviceName)) {
+        if (devices == null || isEmpty(deviceName)) {
             return null;
         }
         for (Device device : devices) {
@@ -406,7 +404,7 @@ public final class HostConfigurationPolicy {
     }
 
     private static Param findParam(Device device, String paramName) {
-        if (device == null || device.getParams() == null || TextUtils.isEmpty(paramName)) {
+        if (device == null || device.getParams() == null || isEmpty(paramName)) {
             return null;
         }
         for (Param param : device.getParams()) {
@@ -417,12 +415,20 @@ public final class HostConfigurationPolicy {
         return null;
     }
 
+    /**
+     * Boolean Param 的 switchStatus 是现有解析链的规范值；优先使用它，避免 BLE 刷新只更新
+     * switchStatus 时被历史 labelValue 覆盖。非 Boolean 参数才回退解析 labelValue。
+     */
     private static boolean readBoolean(Param param) {
         if (param == null) {
             return false;
         }
+        String dataType = param.getDataType();
+        if ("bool".equalsIgnoreCase(dataType) || "boolean".equalsIgnoreCase(dataType)) {
+            return param.getSwitchStatus();
+        }
         String label = param.getLabelValue();
-        if (!TextUtils.isEmpty(label)) {
+        if (!isEmpty(label)) {
             if ("true".equalsIgnoreCase(label) || "1".equals(label)) {
                 return true;
             }
@@ -463,5 +469,10 @@ public final class HostConfigurationPolicy {
         } catch (NumberFormatException | UnsupportedOperationException ex) {
             return null;
         }
+    }
+
+    /** 纯 Java 空串判断，便于 HostConfigurationPolicy 在本地 JVM 单元测试中直接执行。 */
+    private static boolean isEmpty(String value) {
+        return value == null || value.isEmpty();
     }
 }
