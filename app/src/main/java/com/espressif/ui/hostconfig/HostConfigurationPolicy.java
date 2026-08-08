@@ -186,7 +186,7 @@ public final class HostConfigurationPolicy {
     /**
      * 把主机状态投影到 Param 的“有效写权限 / 有效阈值编辑范围”。
      *
-     * <p>所有投影均为可逆的临时字段，不删除 RainMaker 原始 properties、bounds、uiType。
+     * <p>所有投影均为可逆的临时字段，不删除 RainMaker 原始 properties、bounds。
      * 非主机模型会清空投影并完全保持上游行为。</p>
      */
     public static void applyEffectiveWriteGate(ArrayList<Device> devices) {
@@ -211,9 +211,8 @@ public final class HostConfigurationPolicy {
                     continue;
                 }
 
-                // 每次从当前权威状态重新投影，先清理上一次阈值 bounds/UI 覆盖。
+                // 每次从当前权威状态重新投影，先清理上一次阈值 bounds 覆盖。
                 param.setHostBoundsOverride(false, 0, 0);
-                param.setHostUiTypeOverride(null);
 
                 if (!snapshot.hostModel) {
                     param.setHostWriteGate(false, true);
