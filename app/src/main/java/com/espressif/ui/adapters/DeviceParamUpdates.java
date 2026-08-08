@@ -18,11 +18,13 @@ import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
 
+import com.espressif.EspApplication;
 import com.espressif.NetworkApiManager;
 import com.espressif.cloudapi.ApiResponseListener;
 import com.espressif.ui.Utils;
 import com.espressif.ui.activities.EspDeviceActivity;
 import com.espressif.ui.hostconfig.HostConfigurationPolicy;
+import com.espressif.ui.models.EspNode;
 import com.espressif.ui.models.ParamUpdateRequest;
 import com.google.gson.JsonObject;
 
@@ -44,11 +46,12 @@ public class DeviceParamUpdates {
     private String deviceName;
     private ExecutorService exeService;
     private NetworkApiManager networkApiManager;
+    private EspApplication espApp;
 
     private HashMap<String, Queue<Number>> sliderParamMap;  // Map for Param name and Queue (To store queue per param)
     private HashMap<String, Number> lastSliderValues;   // Map for Param name and last slider value (To store last slider value per param)
     private HashMap<String, Long> lastRequestTimes; // Map for Param name and last request time (To store timestamp value per param)
-    private boolean isWait;
+    private volatile boolean isWait;
     private ArrayList<ParamUpdateRequest> paramUpdateRequests;
     private long THROTTLE_DELAY;
     private Context context;
@@ -65,9 +68,15 @@ public class DeviceParamUpdates {
         THROTTLE_DELAY = Utils.getThrottleDelay();
         exeService = Executors.newSingleThreadExecutor();
         networkApiManager = new NetworkApiManager(activityContext.getApplicationContext());
+        espApp = (EspApplication) activityContext.getApplicationContext();
     }
 
-    public void addParamUpdateRequest(JsonObject body, ApiResponseListener listener) {
+    /**
+     * 把普通 Param 写请求加入现有单线程发送队列。
+     *
+     * <p>synchronized 仅保护内存队列，不在锁内执行网络阻塞。</p>
+     */
+    public synchronized void addParamUpdateRequest(JsonObject body, ApiResponseListener listener) {
 
         Log.d(TAG, "Added param update : " + body);
         ParamUpdateRequest paramReq = new ParamUpdateRequest();
@@ -77,7 +86,7 @@ public class DeviceParamUpdates {
         processParamRequests();
     }
 
-    public void processSliderChange(String paramName, Number sliderValue) {
+    public synchronized void processSliderChange(String paramName, Number sliderValue) {
 
         /*
          * LowThreshold / HighThreshold 是关联配置。
@@ -192,7 +201,13 @@ public class DeviceParamUpdates {
         }
     }
 
-    private void processParamRequests() {
+    /**
+     * 串行选取下一条 Param/Slider 请求。
+     *
+     * <p>只做内存队列调度；网络调用由单线程 Executor 执行。Iterator 遍历期间使用
+     * iterator.remove() 删除空队列，避免 ConcurrentModificationException。</p>
+     */
+    private synchronized void processParamRequests() {
 
         if (!isWait) {
 
@@ -217,7 +232,7 @@ public class DeviceParamUpdates {
                     String paramName = entry.getKey();
                     Queue<Number> queue = entry.getValue();
                     if (queue.isEmpty()) {
-                        sliderParamMap.remove(paramName);
+                        itr.remove();
                     } else {
                         Number sliderValue = queue.poll();
                         processSliderRequest(paramName, sliderValue);
@@ -228,7 +243,7 @@ public class DeviceParamUpdates {
         }
     }
 
-    public void clearQueueAndSendLastValue(String paramName, Number sliderValue, ApiResponseListener listener) {
+    public synchronized void clearQueueAndSendLastValue(String paramName, Number sliderValue, ApiResponseListener listener) {
 
         if (sliderParamMap.containsKey(paramName)) {
             sliderParamMap.get(paramName).clear();
@@ -276,8 +291,31 @@ public class DeviceParamUpdates {
         });
     }
 
+    /**
+     * 所有非 Matter Param 的统一最终发送点。
+     *
+     * <p>真正调用 NetworkApiManager 前，对本项目主机模型重新读取一次当前 Node 状态并执行
+     * HostConfigurationPolicy 预检。这样 UI 已经排队的请求即使遇到 RemoteControlEnabled、
+     * CloudOnline、WorkMode 或另一阈值刚刚变化，也会在网络发送前再次被拦截。</p>
+     */
     private void sendParamUpdates(JsonObject body, ApiResponseListener listener) {
         Log.d(TAG, "sendParamUpdates called with body: " + body.toString());
+
+        EspNode currentNode = espApp.nodeMap.get(nodeId);
+        if (currentNode != null) {
+            HostConfigurationPolicy.WriteDecision decision = HostConfigurationPolicy.evaluateWriteRequest(
+                    currentNode.getDevices(), body);
+            if (!decision.allowed) {
+                Log.w(TAG, "Host configuration write blocked before network request, reason="
+                        + decision.reason + ", param=" + decision.paramName);
+                if (listener != null) {
+                    listener.onResponseFailure(new IllegalStateException(
+                            "Host configuration write blocked: " + decision.reason));
+                }
+                processParamRequests();
+                return;
+            }
+        }
 
         if (context instanceof EspDeviceActivity) {
             ((EspDeviceActivity) context).setLastUpdateRequestTime(System.currentTimeMillis());
