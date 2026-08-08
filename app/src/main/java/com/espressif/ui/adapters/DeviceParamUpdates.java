@@ -48,9 +48,9 @@ public class DeviceParamUpdates {
     private NetworkApiManager networkApiManager;
     private EspApplication espApp;
 
-    private HashMap<String, Queue<Number>> sliderParamMap;  // Map for Param name and Queue (To store queue per param)
-    private HashMap<String, Number> lastSliderValues;   // Map for Param name and last slider value (To store last slider value per param)
-    private HashMap<String, Long> lastRequestTimes; // Map for Param name and last request time (To store timestamp value per param)
+    private HashMap<String, Queue<Number>> sliderParamMap;  // Param 名称 -> Slider 待发送值队列。
+    private HashMap<String, Number> lastSliderValues;       // Param 名称 -> 最近一次 Slider 值。
+    private HashMap<String, Long> lastRequestTimes;         // Param 名称 -> 最近一次请求时间。
     private volatile boolean isWait;
     private ArrayList<ParamUpdateRequest> paramUpdateRequests;
     private long THROTTLE_DELAY;
@@ -74,7 +74,7 @@ public class DeviceParamUpdates {
     /**
      * 把普通 Param 写请求加入现有单线程发送队列。
      *
-     * <p>synchronized 仅保护内存队列，不在锁内执行网络阻塞。</p>
+     * <p>synchronized 仅保护内存队列和 in-flight 标志，不在锁内等待网络响应。</p>
      */
     public synchronized void addParamUpdateRequest(JsonObject body, ApiResponseListener listener) {
 
@@ -128,7 +128,11 @@ public class DeviceParamUpdates {
         processParamRequests();
     }
 
-
+    /**
+     * 将 Slider 值加入对应队列。
+     *
+     * <p>本函数只由 synchronized 的公开入口调用，因此不单独加锁。</p>
+     */
     private void addToQueue(String paramName, Number sliderValue, long currentTime, boolean clearSome) {
 
         Queue<Number> sliderQueue;
@@ -150,8 +154,8 @@ public class DeviceParamUpdates {
             sliderParamMap.put(paramName, sliderQueue);
 
         } else {
-            if (queueSize < QUEUE_SIZE) { // if queue size reaches 50
-                sliderQueue.offer(sliderValue); // clear some middle values
+            if (queueSize < QUEUE_SIZE) {
+                sliderQueue.offer(sliderValue);
             } else if (queueSize == QUEUE_SIZE) {
                 makeSpace(paramName);
                 sliderQueue.offer(sliderValue);
@@ -191,59 +195,74 @@ public class DeviceParamUpdates {
         sliderParamMap.put(paramName, requestQueue);
     }
 
+    /**
+     * 队列满时尝试提前发送一个 Slider 值。
+     *
+     * <p>如果已经存在 in-flight 请求，则不出队，避免值被提前 poll 后丢失。</p>
+     */
     private void processSliderQueue(String paramName) {
 
-        if (sliderParamMap.containsKey(paramName)) {
+        if (isWait) {
+            return;
+        }
 
+        if (sliderParamMap.containsKey(paramName)) {
             Queue<Number> queue = sliderParamMap.get(paramName);
-            Number sliderValue = queue.poll();
-            processSliderRequest(paramName, sliderValue);
+            Number sliderValue = queue.peek();
+            if (sliderValue != null && processSliderRequest(paramName, sliderValue)) {
+                queue.poll();
+            }
         }
     }
 
     /**
      * 串行选取下一条 Param/Slider 请求。
      *
-     * <p>只做内存队列调度；网络调用由单线程 Executor 执行。Iterator 遍历期间使用
-     * iterator.remove() 删除空队列，避免 ConcurrentModificationException。</p>
+     * <p>关键点：在提交 Executor 之前先把 isWait 置为 true，表示已经“预约”了唯一 in-flight
+     * 请求。这样 UI 线程在 worker 真正开始执行前再次入队，也不会形成第二个并行网络请求。</p>
      */
     private synchronized void processParamRequests() {
 
-        if (!isWait) {
+        if (isWait) {
+            return;
+        }
 
-            if (paramUpdateRequests.size() > 0) {
-                ParamUpdateRequest paramReq = paramUpdateRequests.remove(0);
-                exeService.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        sendParamUpdates(paramReq.body, paramReq.listener);
-                    }
-                });
-            }
-
-            if (sliderParamMap.size() > 0) {
-
-                Iterator<Map.Entry<String, Queue<Number>>> itr = sliderParamMap.entrySet().iterator();
-
-                // iterate and remove items simultaneously
-                while (itr.hasNext()) {
-
-                    Map.Entry<String, Queue<Number>> entry = itr.next();
-                    String paramName = entry.getKey();
-                    Queue<Number> queue = entry.getValue();
-                    if (queue.isEmpty()) {
-                        itr.remove();
-                    } else {
-                        Number sliderValue = queue.poll();
-                        processSliderRequest(paramName, sliderValue);
-                        break;
-                    }
+        if (!paramUpdateRequests.isEmpty()) {
+            ParamUpdateRequest paramReq = paramUpdateRequests.remove(0);
+            isWait = true;
+            exeService.submit(new Runnable() {
+                @Override
+                public void run() {
+                    sendParamUpdates(paramReq.body, paramReq.listener);
                 }
+            });
+            return;
+        }
+
+        if (!sliderParamMap.isEmpty()) {
+            Iterator<Map.Entry<String, Queue<Number>>> itr = sliderParamMap.entrySet().iterator();
+
+            while (itr.hasNext()) {
+                Map.Entry<String, Queue<Number>> entry = itr.next();
+                String paramName = entry.getKey();
+                Queue<Number> queue = entry.getValue();
+                if (queue.isEmpty()) {
+                    itr.remove();
+                    continue;
+                }
+
+                Number sliderValue = queue.peek();
+                if (sliderValue != null && processSliderRequest(paramName, sliderValue)) {
+                    queue.poll();
+                }
+                return;
             }
         }
     }
 
-    public synchronized void clearQueueAndSendLastValue(String paramName, Number sliderValue, ApiResponseListener listener) {
+    public synchronized void clearQueueAndSendLastValue(String paramName,
+                                                         Number sliderValue,
+                                                         ApiResponseListener listener) {
 
         if (sliderParamMap.containsKey(paramName)) {
             sliderParamMap.get(paramName).clear();
@@ -263,15 +282,20 @@ public class DeviceParamUpdates {
         addParamUpdateRequest(body, listener);
     }
 
-    private void processSliderRequest(String paramName, Number sliderValue) {
+    /**
+     * 尝试预约并提交一条 Slider 请求。
+     *
+     * @return true 表示已成功预约并提交，调用者此时才可以从队列移除该值。
+     */
+    private synchronized boolean processSliderRequest(String paramName, Number sliderValue) {
 
         if (sliderValue == null) {
             Log.e(TAG, "Slider value cannot be null");
-            return;
+            return false;
         }
 
         if (isWait) {
-            return;
+            return false;
         }
 
         JsonObject jsonParam = new JsonObject();
@@ -283,12 +307,14 @@ public class DeviceParamUpdates {
         }
         body.add(deviceName, jsonParam);
 
+        isWait = true;
         exeService.submit(new Runnable() {
             @Override
             public void run() {
                 sendParamUpdates(body, null);
             }
         });
+        return true;
     }
 
     /**
@@ -308,6 +334,7 @@ public class DeviceParamUpdates {
             if (!decision.allowed) {
                 Log.w(TAG, "Host configuration write blocked before network request, reason="
                         + decision.reason + ", param=" + decision.paramName);
+                isWait = false;
                 if (listener != null) {
                     listener.onResponseFailure(new IllegalStateException(
                             "Host configuration write blocked: " + decision.reason));
@@ -320,7 +347,6 @@ public class DeviceParamUpdates {
         if (context instanceof EspDeviceActivity) {
             ((EspDeviceActivity) context).setLastUpdateRequestTime(System.currentTimeMillis());
         }
-        isWait = true;
 
         networkApiManager.updateParamValue(nodeId, body, new ApiResponseListener() {
 
