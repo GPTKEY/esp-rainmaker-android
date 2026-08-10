@@ -36,6 +36,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.budiyev.android.codescanner.CodeScanner
 import com.espressif.AppConstants
+import com.espressif.diagnostics.BleRawScanDiagnostics
 import com.espressif.matter.GroupSelectionActivity
 import com.espressif.provisioning.DeviceConnectionEvent
 import com.espressif.provisioning.ESPConstants
@@ -67,6 +68,14 @@ class AddDeviceActivity : AppCompatActivity() {
 
     private var codeScanner: CodeScanner? = null
 
+    /**
+     * 二维码 BLE 设备发现阶段的旁路诊断器。
+     *
+     * 生命周期归当前 Activity 所有，只读取 Android 原始 ScanResult 并写 Logcat；不参与设备匹配、
+     * 连接、Security2 或配网状态机。扫码后启动，成功/失败/页面退出时停止。
+     */
+    private var bleRawScanDiagnostics: BleRawScanDiagnostics? = null
+
     private var isQrCodeDataReceived = false
     private var buttonClicked = false
     private var connectedNetwork: String? = null
@@ -76,6 +85,7 @@ class AddDeviceActivity : AppCompatActivity() {
         binding = ActivityAddDeviceBinding.inflate(layoutInflater)
         setContentView(binding.root)
         provisionManager = ESPProvisionManager.getInstance(applicationContext)
+        bleRawScanDiagnostics = BleRawScanDiagnostics(applicationContext)
         initViews()
         EventBus.getDefault().register(this)
         connectedNetwork = wifiSsid
@@ -89,17 +99,21 @@ class AddDeviceActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        bleRawScanDiagnostics?.stop("activity_pause")
         codeScanner?.releaseResources()
         super.onPause()
     }
 
     override fun onDestroy() {
+        bleRawScanDiagnostics?.stop("activity_destroy")
+        bleRawScanDiagnostics = null
         hideLoading()
         EventBus.getDefault().unregister(this)
         super.onDestroy()
     }
 
     override fun onBackPressed() {
+        bleRawScanDiagnostics?.stop("back_pressed")
         provisionManager.espDevice?.disconnectDevice()
         super.onBackPressed()
     }
@@ -381,6 +395,7 @@ class AddDeviceActivity : AppCompatActivity() {
         binding.titleBar.toolbar.navigationIcon =
             AppCompatResources.getDrawable(this, R.drawable.ic_arrow_left)
         binding.titleBar.toolbar.setNavigationOnClickListener {
+            bleRawScanDiagnostics?.stop("toolbar_back")
             if (provisionManager.espDevice != null) {
                 provisionManager.espDevice.disconnectDevice()
             }
@@ -722,10 +737,23 @@ class AddDeviceActivity : AppCompatActivity() {
                 val vib = getSystemService(VIBRATOR_SERVICE) as Vibrator
                 vib.vibrate(50)
                 isQrCodeDataReceived = true
+
+                /*
+                 * Provisioning AAR 在 qrCodeScanned() callback 返回之后才创建 ESPDevice 并启动它自己的
+                 * 3 轮 BLE 搜索，因此这里先启动旁路 raw scanner，再 post 一次读取二维码目标名。
+                 * 诊断器只记录系统 ScanResult，不影响 AAR scanner 的过滤和连接逻辑。
+                 */
+                bleRawScanDiagnostics?.start()
+                binding.root.post {
+                    bleRawScanDiagnostics?.setTargetDeviceName(
+                        provisionManager.espDevice?.deviceName
+                    )
+                }
             }
         }
 
         override fun deviceDetected(device: ESPDevice) {
+            bleRawScanDiagnostics?.stop("device_detected")
             Log.e(TAG, "Device detected")
             espDevice = device
 
@@ -757,6 +785,7 @@ class AddDeviceActivity : AppCompatActivity() {
         }
 
         override fun onFailure(e: Exception) {
+            bleRawScanDiagnostics?.stop("qr_device_lookup_failed")
             Log.e(TAG, "Error : " + e.message)
 
             runOnUiThread {
@@ -768,6 +797,7 @@ class AddDeviceActivity : AppCompatActivity() {
         }
 
         override fun onFailure(e: Exception, qrCodeData: String) {
+            bleRawScanDiagnostics?.stop("qr_format_or_lookup_failed")
             // Called when QR code is not in supported format.
             // Comment below error handling and do whatever you want to do with your QR code data.
             Log.e(TAG, "Error : " + e.message)
