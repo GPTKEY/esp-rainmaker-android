@@ -42,6 +42,7 @@ import com.espressif.provisioning.ESPConstants
 import com.espressif.provisioning.ESPDevice
 import com.espressif.provisioning.ESPProvisionManager
 import com.espressif.provisioning.listeners.QRCodeScanListener
+import com.espressif.provisioningcompat.BleQrServiceUuidFallback
 import com.espressif.rainmaker.BuildConfig
 import com.espressif.rainmaker.R
 import com.espressif.rainmaker.databinding.ActivityAddDeviceBinding
@@ -58,6 +59,8 @@ class AddDeviceActivity : AppCompatActivity() {
         private val TAG = AddDeviceActivity::class.java.simpleName
         private const val REQUEST_CAMERA_PERMISSION = 1
         private const val REQUEST_ACCESS_FINE_LOCATION = 2
+        private const val RAINMAKER_PROV_SERVICE_UUID =
+            "021a9004-0382-4aea-bff4-6b3f1c5adfb4"
     }
 
     private lateinit var binding: ActivityAddDeviceBinding
@@ -66,6 +69,14 @@ class AddDeviceActivity : AppCompatActivity() {
     private var espDevice: ESPDevice? = null
 
     private var codeScanner: CodeScanner? = null
+
+    /**
+     * 二维码标准 BLE 搜索已经明确返回 `device not found` 后才创建的一次性兼容回退。
+     *
+     * 生命周期仅覆盖当前 AddDeviceActivity，不跨页面复用；非空表示本次二维码会话已经尝试过
+     * fallback，禁止递归/重复扫描。真正扫描状态和候选并发保护由 BleQrServiceUuidFallback 拥有。
+     */
+    private var bleQrServiceUuidFallback: BleQrServiceUuidFallback? = null
 
     private var isQrCodeDataReceived = false
     private var buttonClicked = false
@@ -89,17 +100,21 @@ class AddDeviceActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        bleQrServiceUuidFallback?.stop("activity_pause")
         codeScanner?.releaseResources()
         super.onPause()
     }
 
     override fun onDestroy() {
+        bleQrServiceUuidFallback?.stop("activity_destroy")
+        bleQrServiceUuidFallback = null
         hideLoading()
         EventBus.getDefault().unregister(this)
         super.onDestroy()
     }
 
     override fun onBackPressed() {
+        bleQrServiceUuidFallback?.stop("back_pressed")
         provisionManager.espDevice?.disconnectDevice()
         super.onBackPressed()
     }
@@ -381,6 +396,7 @@ class AddDeviceActivity : AppCompatActivity() {
         binding.titleBar.toolbar.navigationIcon =
             AppCompatResources.getDrawable(this, R.drawable.ic_arrow_left)
         binding.titleBar.toolbar.setNavigationOnClickListener {
+            bleQrServiceUuidFallback?.stop("toolbar_back")
             if (provisionManager.espDevice != null) {
                 provisionManager.espDevice.disconnectDevice()
             }
@@ -715,6 +731,72 @@ class AddDeviceActivity : AppCompatActivity() {
         binding.qrFrame.layoutQrCodeFrame.visibility = View.GONE
     }
 
+    /**
+     * 仅处理二维码标准扫描已经明确失败的 BLE `device not found`。
+     *
+     * 这里复用 QR 解析阶段由 ESPProvisionManager 创建好的 ESPDevice，因此 PoP、Security2 username
+     * 和 security type 不需要重新解析/复制。fallback 只补 BluetoothDevice + Primary Service UUID。
+     */
+    private fun tryStartBleQrServiceUuidFallback(originalError: Exception): Boolean {
+        val qrDevice = provisionManager.espDevice ?: return false
+        if (qrDevice.transportType != ESPConstants.TransportType.TRANSPORT_BLE) {
+            return false
+        }
+        if (!originalError.message.orEmpty().contains("device not found", ignoreCase = true)) {
+            return false
+        }
+        if (bleQrServiceUuidFallback != null) {
+            return false
+        }
+
+        val targetName = qrDevice.deviceName
+        if (targetName.isNullOrEmpty()) {
+            return false
+        }
+
+        val fallback = BleQrServiceUuidFallback(
+            provisionManager = provisionManager,
+            targetDeviceName = targetName,
+            primaryServiceUuid = RAINMAKER_PROV_SERVICE_UUID,
+            onSelected = { bluetoothDevice, serviceUuid ->
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) {
+                        return@runOnUiThread
+                    }
+                    Log.i("BLE_QR_FALLBACK", "connect_selected service_uuid=$serviceUuid")
+                    espDevice = qrDevice
+                    /*
+                     * 使用官方手动 BLE 连接 API；该 API 会建立和正常 QR 路径相同的 BLETransport。
+                     * 调用后恢复二维码中的目标名，避免某些手机 BluetoothDevice.name 为空时覆盖
+                     * QR 已解析出的稳定设备名。PoP/username/security 不改变。
+                     */
+                    qrDevice.connectBLEDevice(bluetoothDevice, serviceUuid)
+                    qrDevice.deviceName = targetName
+                }
+            },
+            onFailed = { reason, fallbackError ->
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) {
+                        return@runOnUiThread
+                    }
+                    Log.e(
+                        "BLE_QR_FALLBACK",
+                        "failed reason=$reason original=${originalError.message}",
+                    )
+                    showQrScanFailure(fallbackError ?: originalError)
+                }
+            },
+        )
+        bleQrServiceUuidFallback = fallback
+        return fallback.start()
+    }
+
+    private fun showQrScanFailure(e: Exception) {
+        hideLoading()
+        Toast.makeText(this@AddDeviceActivity, e.message, Toast.LENGTH_LONG).show()
+        finish()
+    }
+
     private val qrCodeScanListener: QRCodeScanListener = object : QRCodeScanListener {
         override fun qrCodeScanned() {
             runOnUiThread {
@@ -759,11 +841,12 @@ class AddDeviceActivity : AppCompatActivity() {
         override fun onFailure(e: Exception) {
             Log.e(TAG, "Error : " + e.message)
 
+            if (tryStartBleQrServiceUuidFallback(e)) {
+                return
+            }
+
             runOnUiThread {
-                hideLoading()
-                Toast.makeText(this@AddDeviceActivity, e.message, Toast.LENGTH_LONG)
-                    .show()
-                finish()
+                showQrScanFailure(e)
             }
         }
 
@@ -998,11 +1081,209 @@ class AddDeviceActivity : AppCompatActivity() {
 
         builder.setNegativeButton(
             R.string.btn_cancel
-        ) { dialog, which -> dialog.dismiss() }
+        ) { dialog, which ->
+            dialog.dismiss()
+        }
+        builder.show()
+    }
 
-        val alertDialog = builder.create()
+    private fun showSkipWifiProvisioningDialog() {
+        val builder = AlertDialog.Builder(this)
+        builder.setCancelable(false)
+        builder.setTitle(R.string.skip_wifi_provisioning_title)
+        builder.setMessage(R.string.skip_wifi_provisioning_msg)
+
+        builder.setPositiveButton(R.string.btn_yes) { dialog, which ->
+            /* Get device name from ESPDevice */
+            var deviceName: String? = null
+            if (espDevice != null && espDevice!!.bluetoothDevice != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                        deviceName = espDevice!!.bluetoothDevice.name
+                    }
+                } else {
+                    deviceName = espDevice!!.bluetoothDevice.name
+                }
+            }
+
+            /* Get PoP from ESPDevice (set during QR code scan or manual entry) */
+            val espDevicePop = espDevice?.proofOfPossession
+            val intentPop = intent.getStringExtra(AppConstants.KEY_PROOF_OF_POSSESSION)
+            Log.d(TAG, "BLE Local Ctrl - ESPDevice PoP: $espDevicePop, Intent PoP: $intentPop")
+            var pop = espDevicePop
+            if (pop.isNullOrEmpty()) {
+                /* Fallback to intent extra */
+                pop = intentPop
+            }
+            Log.d(TAG, "Starting BLE local control flow - deviceName: $deviceName, pop: $pop")
+
+            /* Go to ProvisionActivity with BLE local control flag */
+            val provisionIntent = Intent(applicationContext, ProvisionActivity::class.java)
+            provisionIntent.putExtras(intent)
+            if (!deviceName.isNullOrEmpty()) {
+                provisionIntent.putExtra(AppConstants.KEY_DEVICE_NAME, deviceName)
+            }
+            provisionIntent.putExtra(AppConstants.KEY_PROOF_OF_POSSESSION, pop)
+            provisionIntent.putExtra(AppConstants.KEY_BLE_LOCAL_CTRL, true)
+            startActivity(provisionIntent)
+            finish()
+        }
+
+        builder.setNegativeButton(R.string.btn_no) { dialog, which ->
+            val deviceCaps = espDevice!!.deviceCapabilities
+            routeToWifiOrThread(deviceCaps)
+        }
+
         if (!isFinishing) {
-            alertDialog.show()
+            builder.show()
+        }
+    }
+
+    private fun alertForWiFi() {
+        val builder = AlertDialog.Builder(this)
+        builder.setCancelable(false)
+        builder.setMessage(R.string.error_wifi_off)
+
+        builder.setPositiveButton(
+            R.string.btn_ok
+        ) { dialog, which ->
+            dialog.dismiss()
+            espDevice = null
+            hideLoading()
+            if (codeScanner != null) {
+                codeScanner!!.releaseResources()
+                codeScanner!!.startPreview()
+
+                if (ActivityCompat.checkSelfPermission(
+                        this@AddDeviceActivity,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                    && ActivityCompat.checkSelfPermission(
+                        this@AddDeviceActivity,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    provisionManager!!.scanQRCode(codeScanner, qrCodeScanListener)
+                }
+            }
+        }
+
+        builder.show()
+    }
+
+    private fun alertForClaimingNotSupported() {
+        val builder = AlertDialog.Builder(this)
+        builder.setCancelable(false)
+        builder.setMessage(R.string.error_claiming_not_supported)
+
+        builder.setPositiveButton(
+            R.string.btn_ok
+        ) { dialog, which ->
+            if (provisionManager!!.espDevice != null) {
+                provisionManager!!.espDevice.disconnectDevice()
+            }
+            dialog.dismiss()
+            espDevice = null
+            hideLoading()
+            finish()
+        }
+
+        builder.show()
+    }
+
+    private fun showLocationPermissionAlertDialog() {
+        val builder = AlertDialog.Builder(this)
+        builder.setCancelable(false)
+        builder.setMessage(R.string.error_location_permission)
+
+        builder.setPositiveButton(
+            R.string.action_settings
+        ) { dialog, which -> navigateToAppSettings() }
+
+        builder.setNegativeButton(
+            R.string.btn_cancel
+        ) { dialog, which ->
+            dialog.dismiss()
+        }
+        builder.show()
+    }
+
+    private fun showCameraPermissionExplanation() {
+        val builder = AlertDialog.Builder(this)
+        builder.setCancelable(false)
+
+        builder.setTitle(R.string.dialog_title_camera_permission)
+        builder.setMessage(R.string.dialog_msg_camera_permission_use)
+        builder.setPositiveButton(
+            R.string.btn_ok
+        ) { dialog, which ->
+            requestCameraPermission()
+            dialog.dismiss()
+        }
+
+        builder.setNegativeButton(
+            R.string.btn_cancel
+        ) { dialog, which ->
+            dialog.dismiss()
+            finish()
+        }
+
+        builder.show()
+    }
+
+    private fun showLocationAndBluetoothPermissionExplanation(includeBtPermission: Boolean) {
+        val builder = AlertDialog.Builder(this)
+        builder.setCancelable(false)
+
+        if (includeBtPermission) {
+            builder.setTitle(R.string.dialog_title_location_bt_permission)
+        } else {
+            builder.setTitle(R.string.dialog_title_location_permission)
+        }
+        builder.setMessage(R.string.dialog_msg_location_permission_use)
+
+        builder.setPositiveButton(
+            R.string.btn_ok
+        ) { dialog, which ->
+            requestLocationPermission()
+            dialog.dismiss()
+        }
+
+        builder.setNegativeButton(
+            R.string.btn_cancel
+        ) { dialog, which ->
+            dialog.dismiss()
+            finish()
+        }
+
+        builder.show()
+    }
+
+    private fun requestCameraPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.CAMERA),
+            REQUEST_CAMERA_PERMISSION
+        )
+    }
+
+    private fun requestLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ),
+                REQUEST_ACCESS_FINE_LOCATION
+            )
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                REQUEST_ACCESS_FINE_LOCATION
+            )
         }
     }
 
