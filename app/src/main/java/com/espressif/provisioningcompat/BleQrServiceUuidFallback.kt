@@ -343,7 +343,7 @@ class BleQrServiceUuidFallback(
     /**
      * 解析 BLE Advertising/Scan Response 的 AD Structure。
      *
-     * 每个字段格式为 `[length][type][data...]`，其中 length 包含 type 本身但不包含 length 字节。
+     * 每个字段依次由 length、type 和 data 组成，其中 length 包含 type 本身但不包含 length 字节。
      * 遇到 0 长度按标准结束；若声明长度超过剩余字节则标记 malformed 并立即停止，禁止越界。
      */
     private fun parseAdStructures(raw: ByteArray): AdObservation {
