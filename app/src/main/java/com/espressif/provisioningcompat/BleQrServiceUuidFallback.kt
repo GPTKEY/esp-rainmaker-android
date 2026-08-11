@@ -8,8 +8,10 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.espressif.provisioning.ESPProvisionManager
+import java.nio.charset.StandardCharsets
 
 /**
  * RainMaker 二维码 BLE 发现失败后的单次 Android 原生 Service UUID 兼容回退。
@@ -19,8 +21,8 @@ import com.espressif.provisioning.ESPProvisionManager
  * - 只有库已经返回 `device not found` 后，调用方才创建并启动本对象；
  * - 108 版曾继续调用 `ESPProvisionManager.searchBleEspDevices()`，但该 API 内部 BleScanner
  *   会先过滤掉 `ScanRecord.deviceName` 为空的结果，无法真正验证“UUID 可见但名称不可见”；
- * - 本版直接使用 Android `BluetoothLeScanner` 接收原生 `ScanResult`，设备名允许为空，只接受
- *   固定 Provisioning Primary Service UUID；
+ * - 110 版改为 Android `BluetoothLeScanner`，本版继续在此基础上追踪同一目标地址后续
+ *   ScanResult，并解析原始 AD Structure，用于判断 Scan Response 中 Local Name 是否真正进入 Android；
  * - 若设备名精确匹配二维码目标名则优先选中；若名称不可见但只有一个 UUID 候选，也允许安全
  *   回退连接；若现场存在多个相同 UUID 且无法用名称消歧，则拒绝猜测设备。
  *
@@ -28,14 +30,16 @@ import com.espressif.provisioning.ESPProvisionManager
  * `FALLBACK_SCAN_TIMEOUT_MS`；`stop()` 可由 Activity pause/destroy/back 主动结束。对象不得跨 Activity
  * 生命周期复用，也不得在失败后递归重启 scanner。
  *
- * 所有权：本对象只持有扫描窗口内的 `BluetoothLeScanner`、`ScanCallback` 和少量
- * `BluetoothDevice` 引用，不持有 PoP、Security2 username、Wi-Fi 密码、Claim/CSR/证书等敏感数据。
- * `ESPDevice` 以及真正的 BLE/GATT/Security2 生命周期仍由 ESP Provisioning 库原实现拥有。
- * 构造参数 `provisionManager` 仅为保持 108 已有调用接口稳定，本版不再通过它启动/停止扫描。
+ * 所有权：本对象只持有扫描窗口内的 `BluetoothLeScanner`、`ScanCallback`、少量
+ * `BluetoothDevice` 引用和统计计数，不缓存全部原始广播包，不持有 PoP、Security2 username、
+ * Wi-Fi 密码、Claim/CSR/证书等敏感数据。`ESPDevice` 以及真正的 BLE/GATT/Security2 生命周期仍由
+ * ESP Provisioning 库原实现拥有。构造参数 `provisionManager` 仅为保持 108 已有调用接口稳定，
+ * 本版不再通过它启动/停止扫描。
  *
- * 并发规则：系统 BLE 回调、主线程超时和 Activity stop 都可能并发进入。候选集合、started、
- * scanActive、scanner/callback 引用均在 `candidateLock` 的短 synchronized 区域内读写；锁内禁止
- * 调用 UI、GATT、`startScan()` 或 `stopScan()`。所有外部 `onSelected/onFailed` 回调均在锁外执行。
+ * 并发规则：系统 BLE 回调、主线程超时和 Activity stop 都可能并发进入。候选集合、统计状态、
+ * started/scanActive、scanner/callback 引用均在 `candidateLock` 的短 synchronized 区域内读写；锁内
+ * 禁止调用 UI、GATT、`startScan()` 或 `stopScan()`。所有外部 `onSelected/onDiagnostic/onFailed`
+ * 回调均在锁外执行。
  */
 @Suppress("DEPRECATION", "UNUSED_PARAMETER")
 class BleQrServiceUuidFallback(
@@ -43,17 +47,71 @@ class BleQrServiceUuidFallback(
     private val targetDeviceName: String,
     private val primaryServiceUuid: String,
     private val onSelected: (BluetoothDevice, String) -> Unit,
+    private val onDiagnostic: (String) -> Unit = {},
     private val onFailed: (String, Exception?) -> Unit,
 ) {
 
     companion object {
         private const val TAG = "BLE_QR_FALLBACK"
+        private const val DIAG_TAG = "BLE_SCAN_E2E"
         private const val FALLBACK_SCAN_TIMEOUT_MS = 6000L
+
+        private const val AD_TYPE_SHORT_LOCAL_NAME = 0x08
+        private const val AD_TYPE_COMPLETE_LOCAL_NAME = 0x09
+        private const val AD_TYPE_INCOMPLETE_UUID128 = 0x06
+        private const val AD_TYPE_COMPLETE_UUID128 = 0x07
     }
+
+    /**
+     * 单个 ScanRecord 的 AD Structure 解析摘要。
+     *
+     * 字段含义与取值：
+     * - `rawLength`：Android 返回的 `ScanRecord.bytes` 长度，非负整数；仅用于诊断长度，不作为协议判断。
+     * - `localNameType`：0x08/0x09 表示发现 Shortened/Complete Local Name；null 表示当前记录没有名称 AD。
+     * - `localName`：当前记录中解析到的广播名称；生命周期仅限本次扫描窗口，不跨 Activity 保存。
+     * - `targetUuidInRaw`：原始 0x06/0x07 UUID128 字段中是否存在目标 Provisioning UUID。
+     * - `malformed`：AD length 超过剩余数据时为 true；解析立即停止，禁止继续越界读取。
+     *
+     * 所有权/并发：对象由单次 `parseAdStructures()` 创建后只读，不共享可变数组，可在锁外安全使用。
+     */
+    private data class AdObservation(
+        val rawLength: Int,
+        val localNameType: Int?,
+        val localName: String?,
+        val targetUuidInRaw: Boolean,
+        val malformed: Boolean,
+    )
+
+    /**
+     * 一次 fallback 扫描窗口的目标设备统计。
+     *
+     * 字段含义与范围：
+     * - `targetResultCount`：首次锁定目标 UUID 后，目标地址相关 ScanResult 总数，范围 0..Int.MAX_VALUE。
+     * - `uuidMatchCount`：明确含目标 Service UUID 的结果数，范围 0..targetResultCount。
+     * - `nameVisibleCount`：`ScanRecord.deviceName` 非空的目标结果数。
+     * - `localNameAdCount`：原始 AD 中出现 0x08/0x09 Local Name 的目标结果数。
+     * - `firstUuidElapsedMs`：首次 UUID 命中的 `SystemClock.elapsedRealtime()`；-1 表示尚未命中。
+     * - `firstNameElapsedMs`：首次 deviceName 或 Local Name AD 可见时间；-1 表示整个窗口未见名称。
+     * - `firstTargetAddress`：首次 UUID 命中的 Bluetooth 地址，仅用于本轮日志关联；null 表示未命中。
+     *
+     * 生命周期：对象与 `BleQrServiceUuidFallback` 一一对应，`start()` 时清零，扫描结束后不再更新。
+     * 所有权：仅本类持有，不向外暴露引用。
+     * 并发规则：所有字段必须在 `candidateLock` 内读写；锁外只能使用结束时复制出的不可变快照值。
+     */
+    private data class ScanDiagnostics(
+        var targetResultCount: Int = 0,
+        var uuidMatchCount: Int = 0,
+        var nameVisibleCount: Int = 0,
+        var localNameAdCount: Int = 0,
+        var firstUuidElapsedMs: Long = -1L,
+        var firstNameElapsedMs: Long = -1L,
+        var firstTargetAddress: String? = null,
+    )
 
     private val candidateLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val uuidCandidates = LinkedHashMap<String, BluetoothDevice>()
+    private val diagnostics = ScanDiagnostics()
 
     private var exactNameCandidate: BluetoothDevice? = null
     private var started = false
@@ -79,6 +137,13 @@ class BleQrServiceUuidFallback(
             started = true
             uuidCandidates.clear()
             exactNameCandidate = null
+            diagnostics.targetResultCount = 0
+            diagnostics.uuidMatchCount = 0
+            diagnostics.nameVisibleCount = 0
+            diagnostics.localNameAdCount = 0
+            diagnostics.firstUuidElapsedMs = -1L
+            diagnostics.firstNameElapsedMs = -1L
+            diagnostics.firstTargetAddress = null
         }
 
         Log.w(
@@ -128,12 +193,12 @@ class BleQrServiceUuidFallback(
 
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                handleNativeScanResult(result)
+                handleNativeScanResult(callbackType, result)
             }
 
             override fun onBatchScanResults(results: MutableList<ScanResult>) {
                 for (result in results) {
-                    handleNativeScanResult(result)
+                    handleNativeScanResult(-1, result)
                 }
             }
 
@@ -182,41 +247,193 @@ class BleQrServiceUuidFallback(
     /**
      * 消费一个未经 Espressif BleScanner 名称门槛过滤的原生 ScanResult。
      *
-     * 只保存目标 Provisioning UUID 候选。即使 `deviceName` 为空，只要 UUID 匹配仍会进入候选表。
+     * 首次 UUID 命中后把 Bluetooth 地址加入目标候选；此后即使某条结果本身不再携带 UUID，
+     * 只要地址相同仍会继续解析和统计，用于捕获后续独立/合并到来的 Scan Response 名称数据。
      */
-    private fun handleNativeScanResult(result: ScanResult) {
+    private fun handleNativeScanResult(callbackType: Int, result: ScanResult) {
         val scanRecord = result.scanRecord ?: return
-        val matchedUuid = scanRecord.serviceUuids
-            ?.firstOrNull { parcelUuid ->
-                parcelUuid.toString().equals(primaryServiceUuid, ignoreCase = true)
-            }
-            ?.toString()
-            ?: return
-
         val device = result.device ?: return
         val advertisedName = scanRecord.deviceName
-        val address = try {
-            device.address ?: "unknown"
-        } catch (_: SecurityException) {
-            "permission-denied"
-        }
+        val address = safeAddress(device)
+        val nowMs = SystemClock.elapsedRealtime()
+        val adObservation = parseAdStructures(scanRecord.bytes)
+
+        val parsedUuidMatch = scanRecord.serviceUuids
+            ?.any { parcelUuid ->
+                parcelUuid.toString().equals(primaryServiceUuid, ignoreCase = true)
+            }
+            ?: false
+        val uuidMatched = parsedUuidMatch || adObservation.targetUuidInRaw
+
+        var shouldLogTarget = false
+        var targetResultIndex = 0
+        var uuidMatchCount = 0
+        var nameVisibleCount = 0
+        var localNameAdCount = 0
 
         synchronized(candidateLock) {
             if (!scanActive) {
                 return
             }
-            uuidCandidates[address] = device
-            if (!advertisedName.isNullOrEmpty() && advertisedName == targetDeviceName) {
+
+            if (uuidMatched) {
+                uuidCandidates[address] = device
+                diagnostics.uuidMatchCount += 1
+                if (diagnostics.firstUuidElapsedMs < 0L) {
+                    diagnostics.firstUuidElapsedMs = nowMs
+                    diagnostics.firstTargetAddress = address
+                }
+            }
+
+            val isTargetAddress = uuidMatched || uuidCandidates.containsKey(address)
+            if (!isTargetAddress) {
+                return
+            }
+
+            diagnostics.targetResultCount += 1
+            if (!advertisedName.isNullOrEmpty()) {
+                diagnostics.nameVisibleCount += 1
+            }
+            if (adObservation.localNameType != null) {
+                diagnostics.localNameAdCount += 1
+            }
+            if (diagnostics.firstNameElapsedMs < 0L &&
+                (!advertisedName.isNullOrEmpty() || adObservation.localNameType != null)
+            ) {
+                diagnostics.firstNameElapsedMs = nowMs
+            }
+
+            if ((!advertisedName.isNullOrEmpty() && advertisedName == targetDeviceName) ||
+                (!adObservation.localName.isNullOrEmpty() && adObservation.localName == targetDeviceName)
+            ) {
                 exactNameCandidate = device
             }
+
+            shouldLogTarget = true
+            targetResultIndex = diagnostics.targetResultCount
+            uuidMatchCount = diagnostics.uuidMatchCount
+            nameVisibleCount = diagnostics.nameVisibleCount
+            localNameAdCount = diagnostics.localNameAdCount
+        }
+
+        if (!shouldLogTarget) {
+            return
+        }
+
+        val rawHex = scanRecord.bytes.joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
+        val localNameTypeText = when (adObservation.localNameType) {
+            AD_TYPE_SHORT_LOCAL_NAME -> "0x08"
+            AD_TYPE_COMPLETE_LOCAL_NAME -> "0x09"
+            else -> "none"
         }
 
         Log.i(
-            TAG,
-            "native_candidate address=$address rssi=${result.rssi} " +
-                "name_visible=${!advertisedName.isNullOrEmpty()} " +
-                "name_match=${advertisedName == targetDeviceName} uuid=$matchedUuid",
+            DIAG_TAG,
+            "target_result index=$targetResultIndex callback_type=$callbackType address=$address " +
+                "rssi=${result.rssi} uuid_match=$uuidMatched name_visible=${!advertisedName.isNullOrEmpty()} " +
+                "name_match=${advertisedName == targetDeviceName || adObservation.localName == targetDeviceName} " +
+                "local_name_ad=$localNameTypeText local_name=${adObservation.localName ?: "null"} " +
+                "raw_len=${adObservation.rawLength} malformed=${adObservation.malformed} " +
+                "counts=uuid:$uuidMatchCount,name:$nameVisibleCount,local_ad:$localNameAdCount raw=$rawHex",
         )
+    }
+
+    /**
+     * 解析 BLE Advertising/Scan Response 的 AD Structure。
+     *
+     * 每个字段格式为 `[length][type][data...]`，其中 length 包含 type 本身但不包含 length 字节。
+     * 遇到 0 长度按标准结束；若声明长度超过剩余字节则标记 malformed 并立即停止，禁止越界。
+     */
+    private fun parseAdStructures(raw: ByteArray): AdObservation {
+        var index = 0
+        var localNameType: Int? = null
+        var localName: String? = null
+        var targetUuidInRaw = false
+        var malformed = false
+
+        while (index < raw.size) {
+            val fieldLength = raw[index].toInt() and 0xff
+            if (fieldLength == 0) {
+                break
+            }
+
+            val fieldEndExclusive = index + 1 + fieldLength
+            if (fieldLength < 1 || fieldEndExclusive > raw.size) {
+                malformed = true
+                break
+            }
+
+            val type = raw[index + 1].toInt() and 0xff
+            val dataStart = index + 2
+            val dataEndExclusive = fieldEndExclusive
+
+            when (type) {
+                AD_TYPE_SHORT_LOCAL_NAME,
+                AD_TYPE_COMPLETE_LOCAL_NAME,
+                -> {
+                    if (dataEndExclusive > dataStart) {
+                        val decoded = String(
+                            raw,
+                            dataStart,
+                            dataEndExclusive - dataStart,
+                            StandardCharsets.UTF_8,
+                        ).trimEnd('\u0000')
+                        localNameType = type
+                        localName = decoded.ifEmpty { null }
+                    }
+                }
+
+                AD_TYPE_INCOMPLETE_UUID128,
+                AD_TYPE_COMPLETE_UUID128,
+                -> {
+                    var uuidOffset = dataStart
+                    while (uuidOffset + 16 <= dataEndExclusive) {
+                        val uuidText = uuid128LittleEndianToString(raw, uuidOffset)
+                        if (uuidText.equals(primaryServiceUuid, ignoreCase = true)) {
+                            targetUuidInRaw = true
+                        }
+                        uuidOffset += 16
+                    }
+                }
+            }
+
+            index = fieldEndExclusive
+        }
+
+        return AdObservation(
+            rawLength = raw.size,
+            localNameType = localNameType,
+            localName = localName,
+            targetUuidInRaw = targetUuidInRaw,
+            malformed = malformed,
+        )
+    }
+
+    /**
+     * BLE 128-bit UUID 在 AD 数据中按 little-endian 字节序发送；这里反转 16 字节并格式化成
+     * Android `ParcelUuid.toString()` 使用的 canonical 8-4-4-4-12 形式，仅用于诊断匹配。
+     */
+    private fun uuid128LittleEndianToString(raw: ByteArray, offset: Int): String {
+        val canonical = ByteArray(16)
+        for (i in 0 until 16) {
+            canonical[i] = raw[offset + 15 - i]
+        }
+        val hex = canonical.joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
+        return buildString(36) {
+            append(hex, 0, 8)
+            append('-')
+            append(hex, 8, 12)
+            append('-')
+            append(hex, 12, 16)
+            append('-')
+            append(hex, 16, 20)
+            append('-')
+            append(hex, 20, 32)
+        }
     }
 
     /** 系统 BLE scanner 启动失败；错误码直接转成用户可见诊断，不进行自动重试。 */
@@ -245,7 +462,7 @@ class BleQrServiceUuidFallback(
     }
 
     /**
-     * 超时后只在锁内领取候选快照，在锁外停止 scanner 并执行连接/失败回调。
+     * 超时后只在锁内领取候选和统计快照，在锁外停止 scanner 并执行连接/诊断/失败回调。
      */
     private fun finishScanAndSelect(reason: String) {
         val scanner: BluetoothLeScanner?
@@ -253,6 +470,12 @@ class BleQrServiceUuidFallback(
         val selected: BluetoothDevice?
         val candidateCount: Int
         val exactMatch: Boolean
+        val targetResultCount: Int
+        val uuidMatchCount: Int
+        val nameVisibleCount: Int
+        val localNameAdCount: Int
+        val nameAfterUuidMs: Long?
+        val firstTargetAddress: String?
 
         synchronized(candidateLock) {
             if (!scanActive) {
@@ -269,17 +492,45 @@ class BleQrServiceUuidFallback(
             exactMatch = exactNameCandidate != null
             selected = exactNameCandidate
                 ?: if (candidateCount == 1) uuidCandidates.values.first() else null
+
+            targetResultCount = diagnostics.targetResultCount
+            uuidMatchCount = diagnostics.uuidMatchCount
+            nameVisibleCount = diagnostics.nameVisibleCount
+            localNameAdCount = diagnostics.localNameAdCount
+            firstTargetAddress = diagnostics.firstTargetAddress
+            nameAfterUuidMs = if (
+                diagnostics.firstUuidElapsedMs >= 0L && diagnostics.firstNameElapsedMs >= 0L
+            ) {
+                diagnostics.firstNameElapsedMs - diagnostics.firstUuidElapsedMs
+            } else {
+                null
+            }
         }
 
         mainHandler.removeCallbacks(scanTimeoutRunnable)
         stopNativeScanner(scanner, callback, reason)
 
+        Log.i(
+            DIAG_TAG,
+            "summary reason=$reason address=${firstTargetAddress ?: "none"} candidates=$candidateCount " +
+                "target_results=$targetResultCount uuid_matches=$uuidMatchCount " +
+                "name_visible=$nameVisibleCount local_name_ad=$localNameAdCount " +
+                "name_after_uuid_ms=${nameAfterUuidMs?.toString() ?: "none"}",
+        )
+
         when {
             selected != null -> {
+                val diagnosticMessage = if (localNameAdCount > 0 || nameVisibleCount > 0) {
+                    "BLE诊断：已收到 Provisioning UUID 和设备名，正在连接设备"
+                } else {
+                    "BLE诊断：已收到 Provisioning UUID，但扫描窗口内未收到设备名 Scan Response，正在按 UUID 连接"
+                }
                 Log.i(
                     TAG,
-                    "native_selected exact_name=$exactMatch candidate_count=$candidateCount reason=$reason",
+                    "native_selected exact_name=$exactMatch candidate_count=$candidateCount reason=$reason " +
+                        "local_name_ad=$localNameAdCount name_visible=$nameVisibleCount",
                 )
+                onDiagnostic(diagnosticMessage)
                 onSelected(selected, primaryServiceUuid)
             }
 
@@ -373,6 +624,14 @@ class BleQrServiceUuidFallback(
             "native_start_failed reason=$reason exception=${cause?.javaClass?.simpleName} message=${cause?.message}",
         )
         onFailed(reason, IllegalStateException(userMessage, cause))
+    }
+
+    private fun safeAddress(device: BluetoothDevice): String {
+        return try {
+            device.address ?: "unknown-${System.identityHashCode(device)}"
+        } catch (_: SecurityException) {
+            "permission-denied-${System.identityHashCode(device)}"
+        }
     }
 
     private fun scanFailureDescription(errorCode: Int): String {
