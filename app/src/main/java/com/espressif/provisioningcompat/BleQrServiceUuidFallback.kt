@@ -21,22 +21,22 @@ import java.nio.charset.StandardCharsets
  * - 只有库已经返回 `device not found` 后，调用方才创建并启动本对象；
  * - 108 版曾继续调用 `ESPProvisionManager.searchBleEspDevices()`，但该 API 内部 BleScanner
  *   会先过滤掉 `ScanRecord.deviceName` 为空的结果，无法真正验证“UUID 可见但名称不可见”；
- * - 110 版改为 Android `BluetoothLeScanner`，本版继续在此基础上追踪同一目标地址后续
- *   ScanResult，并解析原始 AD Structure，用于判断 Scan Response 中 Local Name 是否真正进入 Android；
- * - 若设备名精确匹配二维码目标名则优先选中；若名称不可见但只有一个 UUID 候选，也允许安全
- *   回退连接；若现场存在多个相同 UUID 且无法用名称消歧，则拒绝猜测设备。
+ * - 110 版改为 Android `BluetoothLeScanner`；112 版增加 UUID 命中后的同地址连续观测；
+ * - 本版进一步取消“必须先命中 UUID 才进入诊断”的门槛：二维码目标名称或目标 UUID 任一证据
+ *   都可以建立诊断关联，并统计整个 fallback 窗口的 ScanResult 数量；
+ * - 业务连接规则保持不变：只有目标 Provisioning UUID 候选才允许进入连接，不能仅凭名称连接。
  *
  * 生命周期：一次二维码配网 Activity 最多创建/启动一次。`start()` 后最多扫描
  * `FALLBACK_SCAN_TIMEOUT_MS`；`stop()` 可由 Activity pause/destroy/back 主动结束。对象不得跨 Activity
  * 生命周期复用，也不得在失败后递归重启 scanner。
  *
  * 所有权：本对象只持有扫描窗口内的 `BluetoothLeScanner`、`ScanCallback`、少量
- * `BluetoothDevice` 引用和统计计数，不缓存全部原始广播包，不持有 PoP、Security2 username、
+ * `BluetoothDevice` 引用、目标地址和统计计数，不缓存全部原始广播包，不持有 PoP、Security2 username、
  * Wi-Fi 密码、Claim/CSR/证书等敏感数据。`ESPDevice` 以及真正的 BLE/GATT/Security2 生命周期仍由
  * ESP Provisioning 库原实现拥有。构造参数 `provisionManager` 仅为保持 108 已有调用接口稳定，
  * 本版不再通过它启动/停止扫描。
  *
- * 并发规则：系统 BLE 回调、主线程超时和 Activity stop 都可能并发进入。候选集合、统计状态、
+ * 并发规则：系统 BLE 回调、主线程超时和 Activity stop 都可能并发进入。候选集合、诊断地址、统计状态、
  * started/scanActive、scanner/callback 引用均在 `candidateLock` 的短 synchronized 区域内读写；锁内
  * 禁止调用 UI、GATT、`startScan()` 或 `stopScan()`。所有外部 `onSelected/onDiagnostic/onFailed`
  * 回调均在锁外执行。
@@ -69,40 +69,63 @@ class BleQrServiceUuidFallback(
      * - `rawLength`：Android 返回的 `ScanRecord.bytes` 长度，非负整数；仅用于诊断长度，不作为协议判断。
      * - `localNameType`：0x08/0x09 表示发现 Shortened/Complete Local Name；null 表示当前记录没有名称 AD。
      * - `localName`：当前记录中解析到的广播名称；生命周期仅限本次扫描窗口，不跨 Activity 保存。
+     * - `uuid128Values`：原始 0x06/0x07 字段中成功解析出的 128-bit UUID 文本列表；只读诊断数据。
      * - `targetUuidInRaw`：原始 0x06/0x07 UUID128 字段中是否存在目标 Provisioning UUID。
      * - `malformed`：AD length 超过剩余数据时为 true；解析立即停止，禁止继续越界读取。
      *
-     * 所有权/并发：对象由单次 `parseAdStructures()` 创建后只读，不共享可变数组，可在锁外安全使用。
+     * 生命周期：对象由单次 `parseAdStructures()` 创建，处理完当前 ScanResult 后即可释放。
+     * 所有权：列表由本对象私有持有，不引用原始 ByteArray，不跨扫描窗口缓存。
+     * 并发规则：对象创建后只读，可在 `candidateLock` 外安全使用。
      */
     private data class AdObservation(
         val rawLength: Int,
         val localNameType: Int?,
         val localName: String?,
+        val uuid128Values: List<String>,
         val targetUuidInRaw: Boolean,
         val malformed: Boolean,
     )
 
     /**
-     * 一次 fallback 扫描窗口的目标设备统计。
+     * 一次 fallback 扫描窗口的端到端诊断统计。
      *
      * 字段含义与范围：
-     * - `targetResultCount`：首次锁定目标 UUID 后，目标地址相关 ScanResult 总数，范围 0..Int.MAX_VALUE。
-     * - `uuidMatchCount`：明确含目标 Service UUID 的结果数，范围 0..targetResultCount。
-     * - `nameVisibleCount`：`ScanRecord.deviceName` 非空的目标结果数。
-     * - `localNameAdCount`：原始 AD 中出现 0x08/0x09 Local Name 的目标结果数。
-     * - `firstUuidElapsedMs`：首次 UUID 命中的 `SystemClock.elapsedRealtime()`；-1 表示尚未命中。
-     * - `firstNameElapsedMs`：首次 deviceName 或 Local Name AD 可见时间；-1 表示整个窗口未见名称。
-     * - `firstTargetAddress`：首次 UUID 命中的 Bluetooth 地址，仅用于本轮日志关联；null 表示未命中。
+     * - `allResultCount`：scanActive 期间收到且具有 BluetoothDevice 的全部 ScanResult 数量。
+     * - `relatedResultCount`：名称/UUID 当前命中，或地址此前已被目标证据锁定的结果数。
+     * - `nameMatchCount`：Framework deviceName 或 raw Local Name 精确等于二维码目标名的结果数。
+     * - `uuidMatchCount`：Framework serviceUuids 或 raw UUID128 任一命中目标 Provisioning UUID 的结果数。
+     * - `rawUuidMatchCount`：其中由 raw 0x06/0x07 明确命中目标 UUID 的结果数。
+     * - `nameOnlyResultCount`：当前结果名称匹配而目标 UUID 未匹配的结果数。
+     * - `uuidOnlyResultCount`：当前结果目标 UUID 匹配而名称未匹配的结果数。
+     * - `nameAndUuidResultCount`：当前结果名称与目标 UUID 同时匹配的结果数。
+     * - `nameVisibleCount`：目标相关地址结果中 Framework 名称或 raw Local Name 任一非空的结果数。
+     * - `localNameAdCount`：目标相关地址结果中 raw AD 出现 0x08/0x09 Local Name 的结果数。
+     * - `scanStartElapsedMs`：本对象开始一次 fallback 的单调时间；-1 表示尚未初始化。
+     * - `firstAnyElapsedMs`：首次收到任意有效 ScanResult 的单调时间；-1 表示整个窗口无结果。
+     * - `firstRelatedElapsedMs`：首次出现目标相关结果的单调时间；-1 表示未识别目标相关结果。
+     * - `firstUuidElapsedMs`：首次目标 UUID 命中的单调时间；-1 表示尚未命中。
+     * - `firstNameElapsedMs`：首次二维码目标名称匹配的单调时间；-1 表示尚未匹配。
+     * - `firstTargetAddress`：首次由名称或 UUID 建立关联的 Bluetooth 地址；null 表示尚未关联。
      *
+     * 所有计数理论范围为 0..Int.MAX_VALUE；单次 6 秒扫描不存在现实溢出风险。
      * 生命周期：对象与 `BleQrServiceUuidFallback` 一一对应，`start()` 时清零，扫描结束后不再更新。
      * 所有权：仅本类持有，不向外暴露引用。
      * 并发规则：所有字段必须在 `candidateLock` 内读写；锁外只能使用结束时复制出的不可变快照值。
      */
     private data class ScanDiagnostics(
-        var targetResultCount: Int = 0,
+        var allResultCount: Int = 0,
+        var relatedResultCount: Int = 0,
+        var nameMatchCount: Int = 0,
         var uuidMatchCount: Int = 0,
+        var rawUuidMatchCount: Int = 0,
+        var nameOnlyResultCount: Int = 0,
+        var uuidOnlyResultCount: Int = 0,
+        var nameAndUuidResultCount: Int = 0,
         var nameVisibleCount: Int = 0,
         var localNameAdCount: Int = 0,
+        var scanStartElapsedMs: Long = -1L,
+        var firstAnyElapsedMs: Long = -1L,
+        var firstRelatedElapsedMs: Long = -1L,
         var firstUuidElapsedMs: Long = -1L,
         var firstNameElapsedMs: Long = -1L,
         var firstTargetAddress: String? = null,
@@ -110,7 +133,22 @@ class BleQrServiceUuidFallback(
 
     private val candidateLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * 真正允许进入 BLE 连接的业务候选，仅由目标 Provisioning UUID 命中写入。
+     * 生命周期仅限单次 fallback；所有读写必须持有 `candidateLock`。
+     */
     private val uuidCandidates = LinkedHashMap<String, BluetoothDevice>()
+
+    /**
+     * 仅用于诊断关联的目标地址集合。
+     *
+     * 地址可由“二维码名称匹配”或“目标 UUID 匹配”任一证据加入；加入后，该地址后续即使当前
+     * ScanResult 不再携带名称/UUID，也会继续被统计和详细记录。该集合绝不直接决定业务连接。
+     * 生命周期不超过单次 6 秒 fallback；所有读写必须持有 `candidateLock`。
+     */
+    private val observedTargetAddresses = LinkedHashSet<String>()
+
     private val diagnostics = ScanDiagnostics()
 
     private var exactNameCandidate: BluetoothDevice? = null
@@ -130,20 +168,16 @@ class BleQrServiceUuidFallback(
      * `false` 仅表示同一对象已经启动过，调用方不得再次重试。
      */
     fun start(): Boolean {
+        val startElapsedMs = SystemClock.elapsedRealtime()
         synchronized(candidateLock) {
             if (started) {
                 return false
             }
             started = true
             uuidCandidates.clear()
+            observedTargetAddresses.clear()
             exactNameCandidate = null
-            diagnostics.targetResultCount = 0
-            diagnostics.uuidMatchCount = 0
-            diagnostics.nameVisibleCount = 0
-            diagnostics.localNameAdCount = 0
-            diagnostics.firstUuidElapsedMs = -1L
-            diagnostics.firstNameElapsedMs = -1L
-            diagnostics.firstTargetAddress = null
+            resetDiagnosticsLocked(startElapsedMs)
         }
 
         Log.w(
@@ -219,8 +253,8 @@ class BleQrServiceUuidFallback(
 
         return try {
             /*
-             * 不设置 ScanFilter：目标是直接观察 Android 返回的原生 ScanResult，尤其允许
-             * `deviceName == null`。业务候选过滤全部在 handleNativeScanResult() 中完成。
+             * 不设置 ScanFilter：目标是直接观察 Android 返回的原生 ScanResult。业务候选过滤和
+             * 诊断关联全部在 handleNativeScanResult() 中完成，避免 Framework 预过滤掩盖证据。
              */
             scanner.startScan(emptyList(), settings, callback)
             mainHandler.postDelayed(scanTimeoutRunnable, FALLBACK_SCAN_TIMEOUT_MS)
@@ -247,33 +281,62 @@ class BleQrServiceUuidFallback(
     /**
      * 消费一个未经 Espressif BleScanner 名称门槛过滤的原生 ScanResult。
      *
-     * 首次 UUID 命中后把 Bluetooth 地址加入目标候选；此后即使某条结果本身不再携带 UUID，
-     * 只要地址相同仍会继续解析和统计，用于捕获后续独立/合并到来的 Scan Response 名称数据。
+     * 与 112 的关键区别：不再要求“目标 UUID 先命中”。二维码目标名称或目标 UUID 任一证据都能
+     * 锁定诊断地址；同时所有有效 ScanResult 都会计入 `allResultCount`。业务 `uuidCandidates` 仍只
+     * 由目标 UUID 命中写入，因此本函数不会因为名称匹配而放宽实际连接条件。
      */
     private fun handleNativeScanResult(callbackType: Int, result: ScanResult) {
-        val scanRecord = result.scanRecord ?: return
         val device = result.device ?: return
-        val advertisedName = scanRecord.deviceName
+        val scanRecord = result.scanRecord
+        val advertisedName = scanRecord?.deviceName
         val address = safeAddress(device)
         val nowMs = SystemClock.elapsedRealtime()
-        val adObservation = parseAdStructures(scanRecord.bytes)
+        val rawBytes = scanRecord?.bytes ?: ByteArray(0)
+        val adObservation = if (scanRecord != null) {
+            parseAdStructures(rawBytes)
+        } else {
+            AdObservation(
+                rawLength = 0,
+                localNameType = null,
+                localName = null,
+                uuid128Values = emptyList(),
+                targetUuidInRaw = false,
+                malformed = false,
+            )
+        }
 
-        val parsedUuidMatch = scanRecord.serviceUuids
-            ?.any { parcelUuid ->
-                parcelUuid.toString().equals(primaryServiceUuid, ignoreCase = true)
-            }
-            ?: false
-        val uuidMatched = parsedUuidMatch || adObservation.targetUuidInRaw
+        val frameworkServiceUuids = scanRecord?.serviceUuids
+            ?.map { parcelUuid -> parcelUuid.toString() }
+            ?: emptyList()
+        val frameworkUuidMatch = frameworkServiceUuids.any { uuidText ->
+            uuidText.equals(primaryServiceUuid, ignoreCase = true)
+        }
+        val rawUuidMatch = adObservation.targetUuidInRaw
+        val uuidMatched = frameworkUuidMatch || rawUuidMatch
+        val nameMatched = advertisedName == targetDeviceName ||
+            adObservation.localName == targetDeviceName
+        val anyNameVisible = !advertisedName.isNullOrEmpty() ||
+            !adObservation.localName.isNullOrEmpty()
 
-        var shouldLogTarget = false
-        var targetResultIndex = 0
+        var shouldLogRelated = false
+        var relatedResultIndex = 0
+        var allResultCount = 0
+        var relatedResultCount = 0
+        var nameMatchCount = 0
         var uuidMatchCount = 0
-        var nameVisibleCount = 0
-        var localNameAdCount = 0
+        var rawUuidMatchCount = 0
+        var nameOnlyResultCount = 0
+        var uuidOnlyResultCount = 0
+        var nameAndUuidResultCount = 0
 
         synchronized(candidateLock) {
             if (!scanActive) {
                 return
+            }
+
+            diagnostics.allResultCount += 1
+            if (diagnostics.firstAnyElapsedMs < 0L) {
+                diagnostics.firstAnyElapsedMs = nowMs
             }
 
             if (uuidMatched) {
@@ -281,46 +344,72 @@ class BleQrServiceUuidFallback(
                 diagnostics.uuidMatchCount += 1
                 if (diagnostics.firstUuidElapsedMs < 0L) {
                     diagnostics.firstUuidElapsedMs = nowMs
+                }
+            }
+            if (rawUuidMatch) {
+                diagnostics.rawUuidMatchCount += 1
+            }
+            if (nameMatched) {
+                diagnostics.nameMatchCount += 1
+                if (diagnostics.firstNameElapsedMs < 0L) {
+                    diagnostics.firstNameElapsedMs = nowMs
+                }
+            }
+
+            when {
+                nameMatched && uuidMatched -> diagnostics.nameAndUuidResultCount += 1
+                nameMatched -> diagnostics.nameOnlyResultCount += 1
+                uuidMatched -> diagnostics.uuidOnlyResultCount += 1
+            }
+
+            if (nameMatched || uuidMatched) {
+                observedTargetAddresses.add(address)
+                if (diagnostics.firstTargetAddress == null) {
                     diagnostics.firstTargetAddress = address
                 }
             }
 
-            val isTargetAddress = uuidMatched || uuidCandidates.containsKey(address)
-            if (!isTargetAddress) {
+            val isRelatedAddress = nameMatched || uuidMatched || observedTargetAddresses.contains(address)
+            if (!isRelatedAddress) {
                 return
             }
 
-            diagnostics.targetResultCount += 1
-            if (!advertisedName.isNullOrEmpty()) {
+            diagnostics.relatedResultCount += 1
+            if (diagnostics.firstRelatedElapsedMs < 0L) {
+                diagnostics.firstRelatedElapsedMs = nowMs
+            }
+            if (anyNameVisible) {
                 diagnostics.nameVisibleCount += 1
             }
             if (adObservation.localNameType != null) {
                 diagnostics.localNameAdCount += 1
             }
-            if (diagnostics.firstNameElapsedMs < 0L &&
-                (!advertisedName.isNullOrEmpty() || adObservation.localNameType != null)
-            ) {
-                diagnostics.firstNameElapsedMs = nowMs
-            }
 
-            if ((!advertisedName.isNullOrEmpty() && advertisedName == targetDeviceName) ||
-                (!adObservation.localName.isNullOrEmpty() && adObservation.localName == targetDeviceName)
-            ) {
+            /*
+             * 保持 112 的业务选择语义：只有该地址已经是 UUID 候选，并且当前结果的名称精确匹配，
+             * 才能成为 exactNameCandidate。名称单独出现只用于诊断，不允许直接进入连接。
+             */
+            if (uuidCandidates.containsKey(address) && nameMatched) {
                 exactNameCandidate = device
             }
 
-            shouldLogTarget = true
-            targetResultIndex = diagnostics.targetResultCount
+            shouldLogRelated = true
+            relatedResultIndex = diagnostics.relatedResultCount
+            allResultCount = diagnostics.allResultCount
+            relatedResultCount = diagnostics.relatedResultCount
+            nameMatchCount = diagnostics.nameMatchCount
             uuidMatchCount = diagnostics.uuidMatchCount
-            nameVisibleCount = diagnostics.nameVisibleCount
-            localNameAdCount = diagnostics.localNameAdCount
+            rawUuidMatchCount = diagnostics.rawUuidMatchCount
+            nameOnlyResultCount = diagnostics.nameOnlyResultCount
+            uuidOnlyResultCount = diagnostics.uuidOnlyResultCount
+            nameAndUuidResultCount = diagnostics.nameAndUuidResultCount
         }
 
-        if (!shouldLogTarget) {
+        if (!shouldLogRelated) {
             return
         }
 
-        val rawHex = scanRecord.bytes.joinToString(separator = "") { byte ->
+        val rawHex = rawBytes.joinToString(separator = "") { byte ->
             "%02x".format(byte.toInt() and 0xff)
         }
         val localNameTypeText = when (adObservation.localNameType) {
@@ -328,15 +417,29 @@ class BleQrServiceUuidFallback(
             AD_TYPE_COMPLETE_LOCAL_NAME -> "0x09"
             else -> "none"
         }
+        val frameworkUuidText = frameworkServiceUuids.joinToString(
+            prefix = "[",
+            postfix = "]",
+            separator = ",",
+        )
+        val rawUuidText = adObservation.uuid128Values.joinToString(
+            prefix = "[",
+            postfix = "]",
+            separator = ",",
+        )
 
         Log.i(
             DIAG_TAG,
-            "target_result index=$targetResultIndex callback_type=$callbackType address=$address " +
-                "rssi=${result.rssi} uuid_match=$uuidMatched name_visible=${!advertisedName.isNullOrEmpty()} " +
-                "name_match=${advertisedName == targetDeviceName || adObservation.localName == targetDeviceName} " +
-                "local_name_ad=$localNameTypeText local_name=${adObservation.localName ?: "null"} " +
+            "related_result index=$relatedResultIndex callback_type=$callbackType address=$address " +
+                "rssi=${result.rssi} name=${advertisedName ?: "null"} " +
+                "local_name=${adObservation.localName ?: "null"} local_name_ad=$localNameTypeText " +
+                "name_match=$nameMatched framework_uuid_match=$frameworkUuidMatch " +
+                "raw_uuid_match=$rawUuidMatch uuid_match=$uuidMatched " +
+                "service_uuids=$frameworkUuidText raw_uuid128=$rawUuidText " +
                 "raw_len=${adObservation.rawLength} malformed=${adObservation.malformed} " +
-                "counts=uuid:$uuidMatchCount,name:$nameVisibleCount,local_ad:$localNameAdCount raw=$rawHex",
+                "counts=all:$allResultCount,related:$relatedResultCount,name:$nameMatchCount," +
+                "uuid:$uuidMatchCount,raw_uuid:$rawUuidMatchCount,name_only:$nameOnlyResultCount," +
+                "uuid_only:$uuidOnlyResultCount,both:$nameAndUuidResultCount raw=$rawHex",
         )
     }
 
@@ -350,6 +453,7 @@ class BleQrServiceUuidFallback(
         var index = 0
         var localNameType: Int? = null
         var localName: String? = null
+        val uuid128Values = ArrayList<String>()
         var targetUuidInRaw = false
         var malformed = false
 
@@ -391,6 +495,7 @@ class BleQrServiceUuidFallback(
                     var uuidOffset = dataStart
                     while (uuidOffset + 16 <= dataEndExclusive) {
                         val uuidText = uuid128LittleEndianToString(raw, uuidOffset)
+                        uuid128Values.add(uuidText)
                         if (uuidText.equals(primaryServiceUuid, ignoreCase = true)) {
                             targetUuidInRaw = true
                         }
@@ -406,6 +511,7 @@ class BleQrServiceUuidFallback(
             rawLength = raw.size,
             localNameType = localNameType,
             localName = localName,
+            uuid128Values = uuid128Values.toList(),
             targetUuidInRaw = targetUuidInRaw,
             malformed = malformed,
         )
@@ -470,11 +576,21 @@ class BleQrServiceUuidFallback(
         val selected: BluetoothDevice?
         val candidateCount: Int
         val exactMatch: Boolean
-        val targetResultCount: Int
+        val allResultCount: Int
+        val relatedResultCount: Int
+        val nameMatchCount: Int
         val uuidMatchCount: Int
+        val rawUuidMatchCount: Int
+        val nameOnlyResultCount: Int
+        val uuidOnlyResultCount: Int
+        val nameAndUuidResultCount: Int
         val nameVisibleCount: Int
         val localNameAdCount: Int
-        val nameAfterUuidMs: Long?
+        val scanStartElapsedMs: Long
+        val firstAnyElapsedMs: Long
+        val firstRelatedElapsedMs: Long
+        val firstUuidElapsedMs: Long
+        val firstNameElapsedMs: Long
         val firstTargetAddress: String?
 
         synchronized(candidateLock) {
@@ -493,18 +609,22 @@ class BleQrServiceUuidFallback(
             selected = exactNameCandidate
                 ?: if (candidateCount == 1) uuidCandidates.values.first() else null
 
-            targetResultCount = diagnostics.targetResultCount
+            allResultCount = diagnostics.allResultCount
+            relatedResultCount = diagnostics.relatedResultCount
+            nameMatchCount = diagnostics.nameMatchCount
             uuidMatchCount = diagnostics.uuidMatchCount
+            rawUuidMatchCount = diagnostics.rawUuidMatchCount
+            nameOnlyResultCount = diagnostics.nameOnlyResultCount
+            uuidOnlyResultCount = diagnostics.uuidOnlyResultCount
+            nameAndUuidResultCount = diagnostics.nameAndUuidResultCount
             nameVisibleCount = diagnostics.nameVisibleCount
             localNameAdCount = diagnostics.localNameAdCount
+            scanStartElapsedMs = diagnostics.scanStartElapsedMs
+            firstAnyElapsedMs = diagnostics.firstAnyElapsedMs
+            firstRelatedElapsedMs = diagnostics.firstRelatedElapsedMs
+            firstUuidElapsedMs = diagnostics.firstUuidElapsedMs
+            firstNameElapsedMs = diagnostics.firstNameElapsedMs
             firstTargetAddress = diagnostics.firstTargetAddress
-            nameAfterUuidMs = if (
-                diagnostics.firstUuidElapsedMs >= 0L && diagnostics.firstNameElapsedMs >= 0L
-            ) {
-                diagnostics.firstNameElapsedMs - diagnostics.firstUuidElapsedMs
-            } else {
-                null
-            }
         }
 
         mainHandler.removeCallbacks(scanTimeoutRunnable)
@@ -513,33 +633,69 @@ class BleQrServiceUuidFallback(
         Log.i(
             DIAG_TAG,
             "summary reason=$reason address=${firstTargetAddress ?: "none"} candidates=$candidateCount " +
-                "target_results=$targetResultCount uuid_matches=$uuidMatchCount " +
-                "name_visible=$nameVisibleCount local_name_ad=$localNameAdCount " +
-                "name_after_uuid_ms=${nameAfterUuidMs?.toString() ?: "none"}",
+                "all_results=$allResultCount related_results=$relatedResultCount " +
+                "name_matches=$nameMatchCount uuid_matches=$uuidMatchCount raw_uuid_matches=$rawUuidMatchCount " +
+                "name_only_results=$nameOnlyResultCount uuid_only_results=$uuidOnlyResultCount " +
+                "name_and_uuid_results=$nameAndUuidResultCount name_visible=$nameVisibleCount " +
+                "local_name_ad=$localNameAdCount first_any_ms=${elapsedSinceStart(scanStartElapsedMs, firstAnyElapsedMs)} " +
+                "first_related_ms=${elapsedSinceStart(scanStartElapsedMs, firstRelatedElapsedMs)} " +
+                "first_uuid_ms=${elapsedSinceStart(scanStartElapsedMs, firstUuidElapsedMs)} " +
+                "first_name_ms=${elapsedSinceStart(scanStartElapsedMs, firstNameElapsedMs)}",
         )
 
         when {
             selected != null -> {
-                val diagnosticMessage = if (localNameAdCount > 0 || nameVisibleCount > 0) {
-                    "BLE诊断：已收到 Provisioning UUID 和设备名，正在连接设备"
+                val diagnosticMessage = if (nameMatchCount > 0) {
+                    "BLE诊断：已收到二维码设备名和 Provisioning UUID，正在连接设备"
+                } else if (nameVisibleCount > 0 || localNameAdCount > 0) {
+                    "BLE诊断：已收到 Provisioning UUID，并看到该地址的广播名称，正在连接设备"
                 } else {
-                    "BLE诊断：已收到 Provisioning UUID，但扫描窗口内未收到设备名 Scan Response，正在按 UUID 连接"
+                    "BLE诊断：已收到 Provisioning UUID，但扫描窗口内未看到设备名，正在按 UUID 连接"
                 }
                 Log.i(
                     TAG,
                     "native_selected exact_name=$exactMatch candidate_count=$candidateCount reason=$reason " +
-                        "local_name_ad=$localNameAdCount name_visible=$nameVisibleCount",
+                        "all_results=$allResultCount related_results=$relatedResultCount " +
+                        "name_matches=$nameMatchCount uuid_matches=$uuidMatchCount",
                 )
                 onDiagnostic(diagnosticMessage)
                 onSelected(selected, primaryServiceUuid)
             }
 
-            candidateCount == 0 -> {
-                Log.e(TAG, "native_no_service_uuid_match reason=$reason")
+            candidateCount == 0 && allResultCount == 0 -> {
+                Log.e(TAG, "native_no_scan_results reason=$reason")
                 onFailed(
-                    "no_service_uuid_match",
+                    "no_scan_results",
                     IllegalStateException(
-                        "BLE兼容扫描失败：手机未检测到设备的 Provisioning Service UUID",
+                        "BLE兼容扫描失败：6秒内未收到任何BLE扫描结果",
+                    ),
+                )
+            }
+
+            candidateCount == 0 && nameMatchCount > 0 -> {
+                Log.e(
+                    TAG,
+                    "native_name_seen_uuid_missing reason=$reason name_matches=$nameMatchCount " +
+                        "all_results=$allResultCount",
+                )
+                onFailed(
+                    "name_seen_uuid_missing",
+                    IllegalStateException(
+                        "BLE兼容扫描已检测到二维码设备名 $targetDeviceName，但扫描结果未暴露预期的 Provisioning Service UUID",
+                    ),
+                )
+            }
+
+            candidateCount == 0 -> {
+                Log.e(
+                    TAG,
+                    "native_target_not_recognized reason=$reason all_results=$allResultCount " +
+                        "related_results=$relatedResultCount",
+                )
+                onFailed(
+                    "target_not_recognized",
+                    IllegalStateException(
+                        "BLE兼容扫描收到 $allResultCount 条结果，但未识别到二维码设备名或预期 Provisioning Service UUID",
                     ),
                 )
             }
@@ -624,6 +780,36 @@ class BleQrServiceUuidFallback(
             "native_start_failed reason=$reason exception=${cause?.javaClass?.simpleName} message=${cause?.message}",
         )
         onFailed(reason, IllegalStateException(userMessage, cause))
+    }
+
+    /**
+     * `start()` 时在锁内一次性清零本轮统计。参数使用单调时钟，禁止传入 wall-clock 时间。
+     */
+    private fun resetDiagnosticsLocked(startElapsedMs: Long) {
+        diagnostics.allResultCount = 0
+        diagnostics.relatedResultCount = 0
+        diagnostics.nameMatchCount = 0
+        diagnostics.uuidMatchCount = 0
+        diagnostics.rawUuidMatchCount = 0
+        diagnostics.nameOnlyResultCount = 0
+        diagnostics.uuidOnlyResultCount = 0
+        diagnostics.nameAndUuidResultCount = 0
+        diagnostics.nameVisibleCount = 0
+        diagnostics.localNameAdCount = 0
+        diagnostics.scanStartElapsedMs = startElapsedMs
+        diagnostics.firstAnyElapsedMs = -1L
+        diagnostics.firstRelatedElapsedMs = -1L
+        diagnostics.firstUuidElapsedMs = -1L
+        diagnostics.firstNameElapsedMs = -1L
+        diagnostics.firstTargetAddress = null
+    }
+
+    /** 将单调时间转换为相对本轮扫描起点的毫秒；无有效时间时返回 `none`。 */
+    private fun elapsedSinceStart(startElapsedMs: Long, eventElapsedMs: Long): String {
+        if (startElapsedMs < 0L || eventElapsedMs < startElapsedMs) {
+            return "none"
+        }
+        return (eventElapsedMs - startElapsedMs).toString()
     }
 
     private fun safeAddress(device: BluetoothDevice): String {
