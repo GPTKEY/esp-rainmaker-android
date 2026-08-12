@@ -127,6 +127,7 @@ public final class ExistingWifiReuseHelper {
             return;
         }
 
+        ProvisioningLog.uiProgress(activity, TAG, "Wi-Fi状态", "读取设备当前 Wi-Fi 连接状态");
         final Handler handler = new Handler(Looper.getMainLooper());
         final AtomicBoolean queryFinished = new AtomicBoolean(false);
 
@@ -182,8 +183,10 @@ public final class ExistingWifiReuseHelper {
                             @Override
                             public void run() {
                                 if (status.isReusable()) {
+                                    ProvisioningLog.uiProgress(activity, TAG, "Wi-Fi状态", "设备当前已联网：" + status.getSsid() + "，IP=" + status.getIpAddress());
                                     showReuseDialog(activity, status, listener);
                                 } else {
+                                    ProvisioningLog.uiProgress(activity, TAG, "Wi-Fi状态", "设备当前没有可复用的有效 Wi-Fi，进入重新配置流程");
                                     listener.onReconfigureWifi();
                                 }
                             }
@@ -263,10 +266,14 @@ public final class ExistingWifiReuseHelper {
         builder.setCancelable(false);
         builder.setTitle(R.string.current_wifi_available_title);
         builder.setMessage(activity.getString(R.string.current_wifi_available_message, status.getSsid()));
-        builder.setPositiveButton(R.string.continue_current_wifi, (dialog, which) ->
-                listener.onReuseCurrentWifi(status));
-        builder.setNegativeButton(R.string.reconfigure_wifi, (dialog, which) ->
-                listener.onReconfigureWifi());
+        builder.setPositiveButton(R.string.continue_current_wifi, (dialog, which) -> {
+            ProvisioningLog.uiNotice(activity, TAG, "用户选择：继续使用当前网络 " + status.getSsid());
+            listener.onReuseCurrentWifi(status);
+        });
+        builder.setNegativeButton(R.string.reconfigure_wifi, (dialog, which) -> {
+            ProvisioningLog.uiNotice(activity, TAG, "用户选择：重新配置 Wi-Fi");
+            listener.onReconfigureWifi();
+        });
 
         if (!activity.isFinishing() && !activity.isDestroyed()) {
             builder.show();

@@ -368,6 +368,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
     private void startScan() {
 
         ProvisioningLog.i(TAG, "BLE scan start, prefix=" + deviceNamePrefix);
+        ProvisioningLog.uiProgress(this, TAG, "BLE搜索", "开始搜索配网设备，名称前缀=" + deviceNamePrefix);
         if (!hasPermissions() || isScanning) {
             return;
         }
@@ -633,38 +634,56 @@ public class BLEProvisionLanding extends AppCompatActivity {
         @Override
         public void onPeripheralFound(BluetoothDevice device, ScanResult scanResult) {
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (ActivityCompat.checkSelfPermission(BLEProvisionLanding.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                    ProvisioningLog.d(TAG, "====== onPeripheralFound ===== " + device.getName());
+            String scanName = scanResult.getScanRecord() != null ? scanResult.getScanRecord().getDeviceName() : null;
+            if (TextUtils.isEmpty(scanName)) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+                        || ActivityCompat.checkSelfPermission(BLEProvisionLanding.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                    scanName = device.getName();
                 }
-            } else {
-                ProvisioningLog.d(TAG, "====== onPeripheralFound ===== " + device.getName());
             }
-
-            boolean deviceExists = false;
+            String address = "<权限不可用>";
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+                    || ActivityCompat.checkSelfPermission(BLEProvisionLanding.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                address = device.getAddress();
+            }
+            String serviceUuids = scanResult.getScanRecord() != null
+                    && scanResult.getScanRecord().getServiceUuids() != null
+                    ? scanResult.getScanRecord().getServiceUuids().toString() : "[]";
             String serviceUuid = "";
-
-            if (scanResult.getScanRecord().getServiceUuids() != null && scanResult.getScanRecord().getServiceUuids().size() > 0) {
+            if (scanResult.getScanRecord() != null
+                    && scanResult.getScanRecord().getServiceUuids() != null
+                    && scanResult.getScanRecord().getServiceUuids().size() > 0) {
                 serviceUuid = scanResult.getScanRecord().getServiceUuids().get(0).toString();
             }
-            ProvisioningLog.d(TAG, "Add service UUID : " + serviceUuid);
+            boolean deviceExists = bluetoothDevices.containsKey(device);
+            boolean prefixMatch = !TextUtils.isEmpty(scanName)
+                    && (TextUtils.isEmpty(deviceNamePrefix) || scanName.startsWith(deviceNamePrefix));
 
-            if (bluetoothDevices.containsKey(device)) {
-                deviceExists = true;
-            }
+            ProvisioningLog.uiProgress(TAG, "BLE搜索结果",
+                    "name=" + scanName
+                            + ", mac=" + address
+                            + ", rssi=" + scanResult.getRssi()
+                            + " dBm, txPower=" + (scanResult.getScanRecord() != null ? scanResult.getScanRecord().getTxPowerLevel() : Integer.MIN_VALUE)
+                            + ", serviceUuids=" + serviceUuids
+                            + ", prefixMatch=" + prefixMatch
+                            + ", duplicate=" + deviceExists);
 
             if (!deviceExists) {
-                BleDevice bleDevice = new BleDevice(scanResult.getScanRecord().getDeviceName(), device);
+                BleDevice bleDevice = new BleDevice(scanName, device);
                 rvBleDevices.setVisibility(View.VISIBLE);
                 bluetoothDevices.put(device, serviceUuid);
                 deviceList.add(bleDevice);
                 adapter.notifyDataSetChanged();
+                ProvisioningLog.uiProgress(TAG, "BLE搜索结果", "加入候选列表：" + scanName + "，当前候选数=" + deviceList.size());
+            } else {
+                ProvisioningLog.d(TAG, "BLE duplicate scan result ignored: " + scanName + " / " + address);
             }
         }
 
         @Override
         public void scanCompleted() {
             ProvisioningLog.i(TAG, "BLE scan completed, devices=" + deviceList.size());
+            ProvisioningLog.uiProgress(BLEProvisionLanding.this, TAG, "BLE搜索完成", "找到 " + deviceList.size() + " 个候选配网设备");
             isScanning = false;
             updateProgressAndScanBtn();
         }
@@ -688,6 +707,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
         BleDevice bleDevice = deviceList.get(deviceClickedPosition);
         String uuid = bluetoothDevices.get(bleDevice.getBluetoothDevice());
         ProvisioningLog.d(TAG, "=================== Connect to device : " + bleDevice.getName() + " UUID : " + uuid);
+        ProvisioningLog.uiProgress(this, TAG, "BLE连接", "正在连接设备 " + bleDevice.getName() + "，serviceUuid=" + uuid);
 
         if (hasLocationAndBtPermissions()) {
 

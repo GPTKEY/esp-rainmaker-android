@@ -195,6 +195,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendClaimStartRequest() {
 
+        ProvisioningLog.uiProgress(this, TAG, "Claim 1/5", "读取设备声明信息");
         ProvisioningLog.d(TAG, "Claim Start Request");
         ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_start_send endpoint=" + AppConstants.HANDLER_RM_CLAIM
                 + " retried=" + hasTriedAgain);
@@ -300,6 +301,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendClaimInitRequest(String data) {
 
+        ProvisioningLog.uiProgress(this, TAG, "Claim 2/5", "将云端 Claim 初始化数据发送到设备");
         ProvisioningLog.d(TAG, "Claim Init Request");
         ByteString byteString = ByteString.copyFromUtf8(data);
         EspRmakerClaim.PayloadBuf payloadBuf = EspRmakerClaim.PayloadBuf.newBuilder()
@@ -477,6 +479,9 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendCertificateToDevice(final int offset) {
 
+        if (offset == 0) {
+            ProvisioningLog.uiProgress(this, TAG, "Claim 4/5", "证书已签发，正在通过 BLE 写入设备");
+        }
         if (isClaimingAborted) {
             return;
         }
@@ -521,6 +526,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
                     ProvisioningLog.d(TAG, "Certificate Sent to device successfully.");
                     ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_verify_complete certificate_len=" + certificateData.length());
+                    ProvisioningLog.uiProgress(ClaimingActivity.this, TAG, "Claim 5/5", "设备证书写入完成，Claim 成功");
                     ArrayList<String> deviceCaps = provisionManager.getEspDevice().getDeviceCapabilities();
                     /* Claim 顺序保持不变。Claim 完成后先读取设备当前标准 Wi-Fi status，
                      * 再决定复用当前网络还是进入原有 Wi-Fi 配置页面。 */
@@ -640,6 +646,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendDeviceInfoToCloud(String data) {
 
+        ProvisioningLog.uiProgress(this, TAG, "Claim 云端", "正在向 RainMaker Claim 服务提交设备信息");
         if (isClaimingAborted) {
             return;
         }
@@ -712,6 +719,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendCSRToAPI(String data) {
 
+        ProvisioningLog.uiProgress(this, TAG, "Claim 3/5", "设备 CSR 已生成，正在向 RainMaker 请求证书");
         if (isClaimingAborted) {
             return;
         }
@@ -946,6 +954,8 @@ public class ClaimingActivity extends AppCompatActivity {
         binding.layoutClaiming.ivClaiming.startAnimation(rotate);
         binding.layoutClaiming.tvClaimingProgress.setText(R.string.progress_claiming);
         binding.layoutClaiming.tvClaimingError.setText(R.string.process_take_time);
+        ProvisioningLog.uiStatus(this, TAG, binding.layoutClaiming.tvClaimingProgress.getText());
+        ProvisioningLog.uiNotice(this, TAG, binding.layoutClaiming.tvClaimingError.getText());
     }
 
     private void stopClaimingProgress() {
@@ -955,6 +965,8 @@ public class ClaimingActivity extends AppCompatActivity {
     private void displayError() {
 
         ProvisioningLog.e(TAG, "Claiming error occurred");
+        ProvisioningLog.uiStatus(this, TAG, binding.layoutClaiming.tvClaimingProgress.getText());
+        ProvisioningLog.uiNotice(this, TAG, binding.layoutClaiming.tvClaimingError.getText());
         stopClaimingProgress();
         binding.layoutClaiming.tvPleaseWait.setVisibility(View.GONE);
         btnOk.setVisibility(View.VISIBLE);

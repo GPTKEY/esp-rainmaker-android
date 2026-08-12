@@ -380,6 +380,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void doStep1() {
 
+        ProvisioningLog.uiProgress(this, TAG, "步骤1", tvProvStep1.getText());
         tick1.setVisibility(View.GONE);
         progress1.setVisibility(View.VISIBLE);
 
@@ -409,6 +410,8 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void doStep2() {
 
+        ProvisioningLog.uiProgress(this, TAG, "步骤1完成", tvProvStep1.getText());
+        ProvisioningLog.uiProgress(this, TAG, "步骤2", tvProvStep2.getText());
         tick1.setImageResource(R.drawable.ic_checkbox_on);
         tick1.setVisibility(View.VISIBLE);
         progress1.setVisibility(View.GONE);
@@ -418,6 +421,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void doStep3(boolean isSuccessInStep2) {
 
+        ProvisioningLog.uiProgress(this, TAG, "步骤2结果", tvProvStep2.getText() + "，success=" + isSuccessInStep2);
         if (isSuccessInStep2) {
             tick2.setImageResource(R.drawable.ic_checkbox_on);
         } else {
@@ -444,6 +448,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void doStep4() {
 
+        ProvisioningLog.uiProgress(this, TAG, "步骤4", getString(R.string.prov_step_4));
         hideLoading();
         tick3.setImageResource(R.drawable.ic_checkbox_on);
         tick3.setVisibility(View.VISIBLE);
@@ -454,6 +459,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void doStep5() {
 
+        ProvisioningLog.uiProgress(this, TAG, "步骤5", getString(R.string.prov_step_5));
         ProvisioningLog.d(TAG, "================= Do step 5 =================");
         ProvisioningLog.d(TAG, "Received node id : " + receivedNodeId);
         tick4.setImageResource(R.drawable.ic_checkbox_on);
@@ -501,6 +507,7 @@ public class ProvisionActivity extends AppCompatActivity {
      */
     private void continueWithExistingWifiAfterAssociation() {
         ProvisioningLog.i(TAG, "Reuse current Wi-Fi: skip set/apply config and continue device addition");
+        ProvisioningLog.uiProgress(this, TAG, "复用Wi-Fi", "设备已联网，跳过 SSID/password 下发，继续添加节点");
         isProvisioningCompleted = true;
         runOnUiThread(new Runnable() {
             @Override
@@ -513,6 +520,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void provision() {
 
+        ProvisioningLog.uiProgress(this, TAG, "Wi-Fi下发", "开始发送 Wi-Fi 配置，SSID=" + ssidValue + "，密码已隐藏");
         ProvisioningLog.d(TAG, "+++++++++++++++++++++++++++++ PROVISION +++++++++++++++++++++++++++++");
 
         if (!TextUtils.isEmpty(dataset)) {
@@ -766,6 +774,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void displayFailureAtStep2() {
 
+        ProvisioningLog.uiNotice(this, TAG, tvErrAtStep2.getText());
         tick2.setImageResource(R.drawable.ic_error);
         tick2.setVisibility(View.VISIBLE);
         progress2.setVisibility(View.GONE);
@@ -1090,6 +1099,7 @@ public class ProvisionActivity extends AppCompatActivity {
     }
 
     private void showMappingError() {
+        ProvisioningLog.uiNotice(this, TAG, getString(R.string.error_node_association_msg));
         runOnUiThread(() -> {
             tick1.setImageResource(R.drawable.ic_error);
             tick1.setVisibility(View.VISIBLE);
@@ -1375,6 +1385,7 @@ public class ProvisionActivity extends AppCompatActivity {
                                             tick5.setVisibility(View.VISIBLE);
                                             progress5.setVisibility(View.GONE);
                                             tvProvSuccess.setVisibility(View.VISIBLE);
+                                            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, tvProvSuccess.getText());
                                         }
 
                                         @Override
@@ -1401,6 +1412,7 @@ public class ProvisionActivity extends AppCompatActivity {
                                     tick5.setVisibility(View.VISIBLE);
                                     progress5.setVisibility(View.GONE);
                                     tvProvSuccess.setVisibility(View.VISIBLE);
+                                            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, tvProvSuccess.getText());
                                     handler.removeCallbacks(nodeStatusReqFailed);
                                 }
                             } else {
@@ -1446,6 +1458,7 @@ public class ProvisionActivity extends AppCompatActivity {
         @Override
         public void run() {
             ProvisioningLog.e(TAG, "WiFi connection confirmation timed out");
+            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, getString(R.string.error_wifi_connection_failed));
             runOnUiThread(() -> {
                 tick2.setImageResource(R.drawable.ic_error);
                 tick2.setVisibility(View.VISIBLE);
@@ -1749,6 +1762,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         tick5.setVisibility(View.VISIBLE);
                         progress5.setVisibility(View.GONE);
                         tvProvSuccess.setVisibility(View.VISIBLE);
+                                            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, tvProvSuccess.getText());
                         hideLoading();
                         isProvisioningCompleted = true;
                     });
@@ -1766,6 +1780,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         tick5.setVisibility(View.VISIBLE);
                         progress5.setVisibility(View.GONE);
                         tvProvSuccess.setVisibility(View.VISIBLE);
+                                            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, tvProvSuccess.getText());
                         hideLoading();
                         isProvisioningCompleted = true;
                     });
@@ -1783,6 +1798,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         tick5.setVisibility(View.VISIBLE);
                         progress5.setVisibility(View.GONE);
                         tvProvSuccess.setVisibility(View.VISIBLE);
+                                            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, tvProvSuccess.getText());
                         hideLoading();
                         isProvisioningCompleted = true;
                     });
@@ -1799,6 +1815,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 tick5.setVisibility(View.VISIBLE);
                 progress5.setVisibility(View.GONE);
                 tvProvSuccess.setVisibility(View.VISIBLE);
+                                            ProvisioningLog.uiNotice(ProvisionActivity.this, TAG, tvProvSuccess.getText());
                 hideLoading();
                 isProvisioningCompleted = true;
             });

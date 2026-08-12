@@ -1,5 +1,6 @@
 package com.espressif.utils;
 
+import android.content.Context;
 import android.util.Log;
 
 import java.text.SimpleDateFormat;
@@ -84,6 +85,48 @@ public final class ProvisioningLog {
             listener.onLogReset();
         }
         add("I", "APP", "日志已手动清空");
+    }
+
+    private static String resolveText(Context context, int resId) {
+        if (context == null) return "<context-null>";
+        try { return context.getString(resId); }
+        catch (Exception e) { return "<resource:" + resId + ">"; }
+    }
+
+    public static void uiStatus(Context context, String tag, int resId) {
+        uiStatus(tag, resolveText(context, resId));
+    }
+
+    public static void uiStatus(Context context, String tag, CharSequence text) {
+        uiStatus(tag, text);
+    }
+
+    public static void uiStatus(String tag, CharSequence text) {
+        add("I", tag, "[UI状态] " + String.valueOf(text));
+    }
+
+    public static void uiNotice(Context context, String tag, int resId) {
+        uiNotice(tag, resolveText(context, resId));
+    }
+
+    public static void uiNotice(Context context, String tag, CharSequence text) {
+        uiNotice(tag, text);
+    }
+
+    public static void uiNotice(String tag, CharSequence text) {
+        add("I", tag, "[UI通知] " + String.valueOf(text));
+    }
+
+    public static void uiProgress(Context context, String tag, String state, int resId) {
+        uiProgress(tag, state, resolveText(context, resId));
+    }
+
+    public static void uiProgress(Context context, String tag, String state, CharSequence text) {
+        uiProgress(tag, state, text);
+    }
+
+    public static void uiProgress(String tag, String state, CharSequence text) {
+        add("I", tag, "[UI进度][" + String.valueOf(state) + "] " + String.valueOf(text));
     }
 
     private static String sanitize(String message) {

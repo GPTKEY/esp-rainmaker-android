@@ -69,6 +69,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
 
         provisionManager = ESPProvisionManager.getInstance(getApplicationContext());
         initViews();
+        ProvisioningLog.uiProgress(this, TAG, "Security", "等待输入设备 PoP / 配对码");
         EventBus.getDefault().register(this);
 
         deviceName = getIntent().getStringExtra(AppConstants.KEY_DEVICE_NAME);
@@ -184,6 +185,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
         final String pop = etPop.getText().toString();
         ProvisioningLog.i(TAG, "PoP provided; value hidden");
         ProvisioningLog.i(TAG, "Security session initialization started");
+        ProvisioningLog.uiProgress(this, TAG, "Security", "正在建立安全会话，PoP 内容已隐藏");
         tvPopError.setVisibility(View.INVISIBLE);
         
         // Handle on-network flow differently
@@ -205,6 +207,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
             public void onSuccess(byte[] returnData) {
 
                 ProvisioningLog.i(TAG, "Security session established successfully");
+                ProvisioningLog.uiProgress(ProofOfPossessionActivity.this, TAG, "Security完成", "安全会话建立成功");
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -252,6 +255,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
             @Override
             public void onFailure(Exception e) {
                 ProvisioningLog.e(TAG, "Security session initialization failed", e);
+                ProvisioningLog.uiNotice(ProofOfPossessionActivity.this, TAG, "安全会话建立失败：" + e.getClass().getSimpleName());
                 e.printStackTrace();
                 runOnUiThread(new Runnable() {
                     @Override

@@ -57,6 +57,7 @@ public class WiFiConfigActivity extends AppCompatActivity {
 
         provisionManager = ESPProvisionManager.getInstance(getApplicationContext());
         initViews();
+        ProvisioningLog.uiProgress(this, TAG, "Wi-Fi配置", "等待手动输入 Wi-Fi 名称和密码");
         EventBus.getDefault().register(this);
     }
 
@@ -101,6 +102,7 @@ public class WiFiConfigActivity extends AppCompatActivity {
             }
 
             ProvisioningLog.i(TAG, "Manual Wi-Fi provisioning requested, ssid=" + ssid + "; password hidden");
+            ProvisioningLog.uiNotice(WiFiConfigActivity.this, TAG, "手动配置 Wi-Fi：" + ssid + "，密码内容已隐藏");
             goToProvisionActivity(ssid, password);
         }
     };

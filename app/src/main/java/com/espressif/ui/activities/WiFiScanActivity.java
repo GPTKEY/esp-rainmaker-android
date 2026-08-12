@@ -270,6 +270,7 @@ public class WiFiScanActivity extends AppCompatActivity {
     private void startScan() {
 
         ProvisioningLog.i(TAG, "Wi-Fi scan started, source=" + BuildConfig.WIFI_SCAN_SRC);
+        ProvisioningLog.uiProgress(this, TAG, "Wi-Fi搜索", "开始搜索可用 Wi-Fi，来源=" + BuildConfig.WIFI_SCAN_SRC);
         updateProgressAndScanBtn(true);
         if (BuildConfig.WIFI_SCAN_SRC.equals(AppConstants.WIFI_SCAN_FROM_DEVICE)) {
             showLoading();
@@ -304,6 +305,7 @@ public class WiFiScanActivity extends AppCompatActivity {
             Toast.makeText(WiFiScanActivity.this, R.string.error_network_select, Toast.LENGTH_LONG).show();
         } else {
             ProvisioningLog.i(TAG, "Wi-Fi selected for provisioning, ssid=" + ssid + "; password hidden");
+            ProvisioningLog.uiNotice(this, TAG, "已选择 Wi-Fi：" + ssid + "，密码内容已隐藏");
             goToProvisionActivity(ssid, password);
         }
     }
@@ -326,6 +328,12 @@ public class WiFiScanActivity extends AppCompatActivity {
                     public void run() {
                         wifiAPList.addAll(wifiList);
                         ProvisioningLog.i(TAG, "Device Wi-Fi scan results received, count=" + wifiList.size());
+                        ProvisioningLog.uiProgress(WiFiScanActivity.this, TAG, "Wi-Fi搜索结果", "设备返回 " + wifiList.size() + " 个热点");
+                        for (WiFiAccessPoint ap : wifiList) {
+                            ProvisioningLog.i(TAG, "[Wi-Fi搜索结果] ssid=" + ap.getWifiName()
+                                    + ", rssi=" + ap.getRssi()
+                                    + ", security=" + ap.getSecurity());
+                        }
                         displayWifiList();
                     }
                 });

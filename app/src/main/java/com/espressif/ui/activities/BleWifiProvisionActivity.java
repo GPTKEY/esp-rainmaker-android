@@ -100,6 +100,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
         }
 
         initViews();
+        ProvisioningLog.uiProgress(this, TAG, "已绑定重配网", "已进入已绑定设备 Wi-Fi 重新配置流程，nodeId=" + nodeId);
         startWifiScan();
     }
 
@@ -157,6 +158,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
                 }
                 selectedWiFi = wifiAPList.get(pos);
                 ssid = selectedWiFi.getWifiName();
+                ProvisioningLog.uiNotice(BleWifiProvisionActivity.this, TAG, "重配网选择 Wi-Fi：" + ssid);
 
                 if (selectedWiFi.getSecurity() == ESPConstants.WIFI_OPEN) {
                     layoutPassword.setVisibility(View.INVISIBLE);
@@ -181,6 +183,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
     }
 
     private void startWifiScan() {
+        ProvisioningLog.uiProgress(this, TAG, "已绑定重配网-Wi-Fi搜索", "通过现有 BLE 会话扫描设备可见的 Wi-Fi");
         showScanLoading();
 
         ArrayList<String> caps = BleLocalControlManager.getInstance(this).getDeviceCapabilities(nodeId);
@@ -192,6 +195,12 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
                 public void onWifiListReceived(ArrayList<WiFiAccessPoint> wifiList) {
                     runOnUiThread(() -> {
                         wifiAPList.addAll(wifiList);
+                        ProvisioningLog.uiProgress(BleWifiProvisionActivity.this, TAG, "已绑定重配网-Wi-Fi结果", "扫描到 " + wifiList.size() + " 个热点");
+                        for (WiFiAccessPoint ap : wifiList) {
+                            ProvisioningLog.i(TAG, "[重配网Wi-Fi结果] ssid=" + ap.getWifiName()
+                                    + ", rssi=" + ap.getRssi()
+                                    + ", security=" + ap.getSecurity());
+                        }
                         wiFiListAdapter.notifyDataSetChanged();
                         hideScanLoading();
                     });
@@ -250,6 +259,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
     }
 
     private void startProvisioning(String ssidValue, String password) {
+        ProvisioningLog.uiProgress(this, TAG, "已绑定重配网 1/3", "发送新 Wi-Fi 凭据，SSID=" + ssidValue + "，密码已隐藏");
         layoutWifiSelect.setVisibility(View.GONE);
         layoutProvisionProgress.setVisibility(View.VISIBLE);
 
@@ -265,6 +275,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
 
             @Override
             public void wifiConfigSent() {
+                ProvisioningLog.uiProgress(BleWifiProvisionActivity.this, TAG, "已绑定重配网 1/3", "Wi-Fi 凭据发送成功");
                 runOnUiThread(() -> {
                     progress1.setVisibility(View.GONE);
                     ivTick1.setVisibility(View.VISIBLE);
@@ -281,6 +292,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
 
             @Override
             public void wifiConfigApplied() {
+                ProvisioningLog.uiProgress(BleWifiProvisionActivity.this, TAG, "已绑定重配网 2/3", "设备已应用新 Wi-Fi 配置，等待联网确认");
                 runOnUiThread(() -> {
                     progress2.setVisibility(View.GONE);
                     ivTick2.setVisibility(View.VISIBLE);
@@ -302,6 +314,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
 
             @Override
             public void deviceProvisioningSuccess() {
+                ProvisioningLog.uiProgress(BleWifiProvisionActivity.this, TAG, "已绑定重配网 3/3", "设备已连接新 Wi-Fi，重配网成功");
                 runOnUiThread(() -> {
                     progress3.setVisibility(View.GONE);
                     ivTick3.setVisibility(View.VISIBLE);
@@ -324,6 +337,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
 
     private void showProvisionError(String detail) {
         ProvisioningLog.e(TAG, detail);
+        ProvisioningLog.uiNotice(this, TAG, "已绑定设备重配网失败：" + detail);
         progress1.setVisibility(View.GONE);
         progress2.setVisibility(View.GONE);
         progress3.setVisibility(View.GONE);

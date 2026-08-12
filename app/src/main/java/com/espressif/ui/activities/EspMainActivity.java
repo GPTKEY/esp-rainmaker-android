@@ -14,6 +14,7 @@
 
 package com.espressif.ui.activities;
 
+import com.espressif.utils.ProvisioningLog;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
@@ -295,6 +296,7 @@ public class EspMainActivity extends AppCompatActivity implements BleLocalContro
                     }
                 }
                 if (espApp.getAppState() == EspApplication.AppState.GET_DATA_SUCCESS) {
+                    ProvisioningLog.uiProgress(this, TAG, "已绑定设备发现", "RainMaker 节点列表加载完成，开始发现附近已绑定 BLE 设备");
                     BleLocalControlManager bleManager = BleLocalControlManager.getInstance(this);
                     bleManager.reapplyBleStatusToConnectedNodes();
                     bleManager.scanForDevices(this);

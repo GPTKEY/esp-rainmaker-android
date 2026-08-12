@@ -24,7 +24,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+import com.espressif.utils.ProvisioningLog
 import androidx.core.app.ActivityCompat
 import com.espressif.AppConstants
 import com.espressif.EspApplication
@@ -151,13 +151,13 @@ class BleLocalControlManager private constructor(private val appContext: Context
             when (conn.state) {
                 ConnectionState.CONNECTED -> {
                     if (node.nodeStatus != AppConstants.NODE_STATUS_BLE_LOCAL) {
-                        Log.d(TAG, "Re-applying BLE_LOCAL status for node $nodeId")
+                        ProvisioningLog.d(TAG, "Re-applying BLE_LOCAL status for node $nodeId")
                         node.nodeStatus = AppConstants.NODE_STATUS_BLE_LOCAL
                     }
                 }
                 ConnectionState.DISCOVERED -> {
                     if (node.nodeStatus != AppConstants.NODE_STATUS_BLE_DISCOVERABLE) {
-                        Log.d(TAG, "Re-applying BLE_DISCOVERABLE status for node $nodeId")
+                        ProvisioningLog.d(TAG, "Re-applying BLE_DISCOVERABLE status for node $nodeId")
                         node.nodeStatus = AppConstants.NODE_STATUS_BLE_DISCOVERABLE
                     }
                 }
@@ -173,18 +173,22 @@ class BleLocalControlManager private constructor(private val appContext: Context
      */
     fun scanForDevices(activity: Activity) {
         if (isBleScanning) {
-            Log.d(TAG, "Already scanning, skipping")
+            ProvisioningLog.d(TAG, "Already scanning, skipping")
             return
         }
 
         if (!hasBlePermissions(activity)) {
-            Log.d(TAG, "BLE permissions not granted")
+            ProvisioningLog.d(TAG, "BLE permissions not granted")
             return
         }
 
         val bleDevices = collectBleDevices()
+        ProvisioningLog.uiProgress(TAG, "已绑定设备发现", "已绑定节点中包含 BLE 本地控制信息的设备数=${bleDevices.size}")
+        for ((nodeId, bleInfo) in bleDevices) {
+            ProvisioningLog.i(TAG, "[已绑定设备] nodeId=$nodeId, bleName=${bleInfo.name}, pop=<hidden>")
+        }
         if (bleDevices.isEmpty()) {
-            Log.d(TAG, "No BLE local control devices found in node metadata")
+            ProvisioningLog.d(TAG, "No BLE local control devices found in node metadata")
             return
         }
 
@@ -202,12 +206,12 @@ class BleLocalControlManager private constructor(private val appContext: Context
             it.state == ConnectionState.DISCONNECTED && it.bluetoothDevice == null
         }
         if (pendingNodes.isEmpty()) {
-            Log.d(TAG, "All BLE devices already discovered or connected")
+            ProvisioningLog.d(TAG, "All BLE devices already discovered or connected")
             notifyAllDevicesProcessed()
             return
         }
 
-        Log.d(TAG, "Starting BLE scan for ${pendingNodes.size} devices")
+        ProvisioningLog.d(TAG, "Starting BLE scan for ${pendingNodes.size} devices")
         startBroadScan()
     }
 
@@ -218,25 +222,25 @@ class BleLocalControlManager private constructor(private val appContext: Context
     fun connectDevice(nodeId: String, callback: (Boolean) -> Unit) {
         val conn = connectionMap[nodeId]
         if (conn == null || conn.bluetoothDevice == null) {
-            Log.e(TAG, "connectDevice: no discovered device for node $nodeId")
+            ProvisioningLog.e(TAG, "connectDevice: no discovered device for node $nodeId")
             callback(false)
             return
         }
 
         if (conn.state == ConnectionState.CONNECTED) {
-            Log.d(TAG, "connectDevice: already connected for $nodeId")
+            ProvisioningLog.d(TAG, "connectDevice: already connected for $nodeId")
             callback(true)
             return
         }
 
         if (conn.state == ConnectionState.CONNECTING || conn.state == ConnectionState.SESSION_INIT) {
-            Log.d(TAG, "connectDevice: connection already in progress for $nodeId")
+            ProvisioningLog.d(TAG, "connectDevice: connection already in progress for $nodeId")
             callback(false)
             return
         }
 
         if (currentConnectingNodeId != null) {
-            Log.d(TAG, "connectDevice: another device is connecting ($currentConnectingNodeId), queuing")
+            ProvisioningLog.d(TAG, "connectDevice: another device is connecting ($currentConnectingNodeId), queuing")
             callback(false)
             return
         }
@@ -277,7 +281,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
     }
 
     fun disconnectAll() {
-        Log.d(TAG, "Disconnecting all BLE devices")
+        ProvisioningLog.d(TAG, "Disconnecting all BLE devices")
         stopBleScan()
         currentConnectingNodeId = null
         connectCallback = null
@@ -287,7 +291,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                 try {
                     conn.espDevice?.disconnectDevice()
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error disconnecting device $nodeId: ${e.message}")
+                    ProvisioningLog.e(TAG, "Error disconnecting device $nodeId: ${e.message}")
                 }
                 notifyDeviceDisconnected(nodeId)
             }
@@ -309,7 +313,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
             try {
                 conn.espDevice?.disconnectDevice()
             } catch (e: Exception) {
-                Log.e(TAG, "Error disconnecting device $nodeId: ${e.message}")
+                ProvisioningLog.e(TAG, "Error disconnecting device $nodeId: ${e.message}")
             }
             val node = espApp.nodeMap[nodeId]
             if (node != null) {
@@ -331,13 +335,13 @@ class BleLocalControlManager private constructor(private val appContext: Context
 
         val jsonStr = body.toString()
         val jsonBytes = jsonStr.toByteArray(Charsets.UTF_8)
-        Log.d(TAG, "Sending params via BLE for $nodeId: $jsonStr")
+        ProvisioningLog.d(TAG, "Sending params via BLE for $nodeId: $jsonStr")
 
         val callbackFired = AtomicBoolean(false)
 
         val timeoutRunnable = Runnable {
             if (callbackFired.compareAndSet(false, true)) {
-                Log.e(TAG, "BLE set_params timed out for $nodeId, marking disconnected")
+                ProvisioningLog.e(TAG, "BLE set_params timed out for $nodeId, marking disconnected")
                 handleBleOperationTimeout(nodeId)
                 listener.onNetworkFailure(Exception("BLE operation timed out for $nodeId"))
             }
@@ -351,7 +355,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                 override fun onSuccess(returnData: ByteArray?) {
                     if (callbackFired.compareAndSet(false, true)) {
                         handler.removeCallbacks(timeoutRunnable)
-                        Log.d(TAG, "BLE set_params success for $nodeId")
+                        ProvisioningLog.d(TAG, "BLE set_params success for $nodeId")
                         handler.post { listener.onSuccess(null) }
                     }
                 }
@@ -359,7 +363,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                 override fun onFailure(e: Exception) {
                     if (callbackFired.compareAndSet(false, true)) {
                         handler.removeCallbacks(timeoutRunnable)
-                        Log.e(TAG, "BLE set_params failed for $nodeId: ${e.message}")
+                        ProvisioningLog.e(TAG, "BLE set_params failed for $nodeId: ${e.message}")
                         handleBleOperationTimeout(nodeId)
                         handler.post { listener.onResponseFailure(e) }
                     }
@@ -373,19 +377,19 @@ class BleLocalControlManager private constructor(private val appContext: Context
         onResult: (org.json.JSONObject?) -> Unit
     ) {
         if (isProxyReadInProgress(nodeId)) {
-            Log.w(TAG, "Skipping queryParams for $nodeId — getParamsWithTimestamp is in progress")
+            ProvisioningLog.w(TAG, "Skipping queryParams for $nodeId — getParamsWithTimestamp is in progress")
             onResult(null)
             return
         }
 
         val espDevice = getEspDevice(nodeId)
         if (espDevice == null) {
-            Log.e(TAG, "Cannot query params: BLE not connected for node $nodeId")
+            ProvisioningLog.e(TAG, "Cannot query params: BLE not connected for node $nodeId")
             onResult(null)
             return
         }
 
-        Log.d(TAG, "Querying params via BLE for $nodeId")
+        ProvisioningLog.d(TAG, "Querying params via BLE for $nodeId")
         val dataBuffer = ArrayList<Byte>()
         val callbackFired = AtomicBoolean(false)
 
@@ -397,7 +401,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
 
         val timeoutRunnable = Runnable {
             if (callbackFired.compareAndSet(false, true)) {
-                Log.e(TAG, "BLE queryParams timed out for $nodeId, marking disconnected")
+                ProvisioningLog.e(TAG, "BLE queryParams timed out for $nodeId, marking disconnected")
                 handleBleOperationTimeout(nodeId)
                 onResult(null)
             }
@@ -433,25 +437,26 @@ class BleLocalControlManager private constructor(private val appContext: Context
         val bluetoothAdapter = bluetoothManager?.adapter
 
         if (bluetoothAdapter == null) {
-            Log.e(TAG, "BluetoothAdapter is null - BLE not supported on this device")
+            ProvisioningLog.e(TAG, "BluetoothAdapter is null - BLE not supported on this device")
             onScanPhaseComplete()
             return
         }
 
         if (!bluetoothAdapter.isEnabled) {
-            Log.e(TAG, "Bluetooth is disabled. Please enable Bluetooth to scan for BLE devices.")
+            ProvisioningLog.e(TAG, "Bluetooth is disabled. Please enable Bluetooth to scan for BLE devices.")
             onScanPhaseComplete()
             return
         }
 
         isBleScanning = true
-        Log.d(TAG, "Starting broad BLE scan with prefix '$BLE_DEVICE_PREFIX' (attempt ${scanRetryCount + 1})")
+        ProvisioningLog.d(TAG, "Starting broad BLE scan with prefix '$BLE_DEVICE_PREFIX' (attempt ${scanRetryCount + 1})")
+        ProvisioningLog.uiProgress(TAG, "已绑定BLE搜索", "开始扫描，prefix=$BLE_DEVICE_PREFIX，attempt=${scanRetryCount + 1}")
 
         provisionManager.searchBleEspDevices(BLE_DEVICE_PREFIX, bleScanListener)
 
         handler.postDelayed({
             if (isBleScanning) {
-                Log.d(TAG, "Broad scan timeout reached, stopping scan")
+                ProvisioningLog.d(TAG, "Broad scan timeout reached, stopping scan")
                 stopBleScan()
                 onScanPhaseComplete()
             }
@@ -464,7 +469,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
             try {
                 provisionManager.stopBleScan()
             } catch (e: Exception) {
-                Log.e(TAG, "Error stopping BLE scan: ${e.message}")
+                ProvisioningLog.e(TAG, "Error stopping BLE scan: ${e.message}")
             }
         }
     }
@@ -479,7 +484,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
         }
 
         if (matched.isEmpty()) {
-            Log.d(TAG, "No BLE devices discovered during scan")
+            ProvisioningLog.d(TAG, "No BLE devices discovered during scan")
         } else {
             for (conn in matched) {
                 conn.state = ConnectionState.DISCOVERED
@@ -487,9 +492,9 @@ class BleLocalControlManager private constructor(private val appContext: Context
                 if (node != null) {
                     node.nodeStatus = AppConstants.NODE_STATUS_BLE_DISCOVERABLE
                 }
-                Log.d(TAG, "Marked DISCOVERED: ${conn.bleInfo.name} (node: ${conn.nodeId})")
+                ProvisioningLog.d(TAG, "Marked DISCOVERED: ${conn.bleInfo.name} (node: ${conn.nodeId})")
             }
-            Log.d(TAG, "Scan complete. ${matched.size} devices marked as discoverable")
+            ProvisioningLog.d(TAG, "Scan complete. ${matched.size} devices marked as discoverable")
         }
 
         notifyAllDevicesProcessed()
@@ -500,7 +505,8 @@ class BleLocalControlManager private constructor(private val appContext: Context
     private fun connectToBleDevice(conn: BleDeviceConnection) {
         val bluetoothDevice = conn.bluetoothDevice ?: return
 
-        Log.d(TAG, "Connecting to BLE device: ${bluetoothDevice.name} for node ${conn.nodeId}")
+        ProvisioningLog.d(TAG, "Connecting to BLE device: ${bluetoothDevice.name} for node ${conn.nodeId}")
+        ProvisioningLog.uiProgress(TAG, "已绑定BLE连接", "正在连接 ${bluetoothDevice.name} / nodeId=${conn.nodeId}")
         conn.state = ConnectionState.CONNECTING
 
         val espDevice = ESPDevice(appContext, ESPConstants.TransportType.TRANSPORT_BLE, ESPConstants.SecurityType.SECURITY_1)
@@ -517,11 +523,12 @@ class BleLocalControlManager private constructor(private val appContext: Context
         val espDevice = conn.espDevice ?: return
 
         conn.state = ConnectionState.SESSION_INIT
-        Log.d(TAG, "Initializing BLE session for $nodeId")
+        ProvisioningLog.d(TAG, "Initializing BLE session for $nodeId")
 
         espDevice.initSession(object : ResponseListener {
             override fun onSuccess(returnData: ByteArray?) {
-                Log.d(TAG, "BLE session success for $nodeId")
+                ProvisioningLog.d(TAG, "BLE session success for $nodeId")
+                ProvisioningLog.uiProgress(TAG, "已绑定BLE会话", "nodeId=$nodeId 安全会话建立成功，可进行本地控制/重配网")
                 handler.post {
                     conn.state = ConnectionState.CONNECTED
 
@@ -540,7 +547,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
             }
 
             override fun onFailure(e: Exception) {
-                Log.e(TAG, "BLE session failed for $nodeId: ${e.message}")
+                ProvisioningLog.e(TAG, "BLE session failed for $nodeId: ${e.message}")
                 handler.post {
                     conn.state = ConnectionState.DISCOVERED
                     conn.espDevice = null
@@ -561,16 +568,21 @@ class BleLocalControlManager private constructor(private val appContext: Context
             isBleScanning = false
             scanRetryCount++
             if (scanRetryCount < MAX_SCAN_RETRIES) {
-                Log.w(TAG, "BLE scan start failed, retrying in ${SCAN_RETRY_DELAY_MS}ms (attempt $scanRetryCount/$MAX_SCAN_RETRIES)")
+                ProvisioningLog.w(TAG, "BLE scan start failed, retrying in ${SCAN_RETRY_DELAY_MS}ms (attempt $scanRetryCount/$MAX_SCAN_RETRIES)")
                 handler.postDelayed({ attemptBleScan() }, SCAN_RETRY_DELAY_MS)
             } else {
-                Log.e(TAG, "BLE scan start failed after $MAX_SCAN_RETRIES attempts")
+                ProvisioningLog.e(TAG, "BLE scan start failed after $MAX_SCAN_RETRIES attempts")
                 handler.post { onScanPhaseComplete() }
             }
         }
 
         override fun onPeripheralFound(device: BluetoothDevice, scanResult: ScanResult) {
-            val deviceName = scanResult.scanRecord?.deviceName ?: return
+            val deviceName = scanResult.scanRecord?.deviceName ?: device.name ?: "<unknown>"
+            val serviceUuids = scanResult.scanRecord?.serviceUuids?.joinToString(",") ?: ""
+            val address = try { device.address ?: "<unknown>" } catch (_: SecurityException) { "<permission-denied>" }
+            val matchingNodes = connectionMap.values.filter { it.bleInfo.name == deviceName }.map { it.nodeId }
+            ProvisioningLog.uiProgress(TAG, "已绑定BLE搜索结果",
+                "name=$deviceName, mac=$address, rssi=${scanResult.rssi} dBm, serviceUuids=[$serviceUuids], matchedNodes=${matchingNodes.joinToString(",")}")
 
             for (conn in connectionMap.values) {
                 if (conn.state == ConnectionState.DISCONNECTED
@@ -584,20 +596,21 @@ class BleLocalControlManager private constructor(private val appContext: Context
                     }
                     conn.bluetoothDevice = device
                     conn.serviceUuid = serviceUuid
-                    Log.d(TAG, "Scan matched: $deviceName -> node ${conn.nodeId}")
+                    ProvisioningLog.uiProgress(TAG, "已绑定BLE匹配", "设备 $deviceName 匹配 nodeId=${conn.nodeId}，serviceUuid=$serviceUuid")
                     break
                 }
             }
         }
 
         override fun scanCompleted() {
-            Log.d(TAG, "BLE scan completed")
+            ProvisioningLog.d(TAG, "BLE scan completed")
+            ProvisioningLog.uiProgress(TAG, "已绑定BLE搜索完成", "BLE broad scan completed")
             isBleScanning = false
             handler.post { onScanPhaseComplete() }
         }
 
         override fun onFailure(e: Exception) {
-            Log.e(TAG, "BLE scan failure: ${e.message}")
+            ProvisioningLog.e(TAG, "BLE scan failure: ${e.message}")
             isBleScanning = false
             handler.post { onScanPhaseComplete() }
         }
@@ -611,11 +624,11 @@ class BleLocalControlManager private constructor(private val appContext: Context
 
         when (event.eventType) {
             ESPConstants.EVENT_DEVICE_CONNECTED -> {
-                Log.d(TAG, "BLE device connected for node $nodeId - initializing session")
+                ProvisioningLog.d(TAG, "BLE device connected for node $nodeId - initializing session")
                 initBleSession(nodeId)
             }
             ESPConstants.EVENT_DEVICE_DISCONNECTED -> {
-                Log.d(TAG, "BLE device disconnected for node $nodeId")
+                ProvisioningLog.d(TAG, "BLE device disconnected for node $nodeId")
                 val conn = connectionMap[nodeId]
                 if (conn != null && conn.state == ConnectionState.CONNECTED) {
                     conn.state = ConnectionState.DISCOVERED
@@ -635,7 +648,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                 }
             }
             ESPConstants.EVENT_DEVICE_CONNECTION_FAILED -> {
-                Log.e(TAG, "BLE device connection failed for node $nodeId")
+                ProvisioningLog.e(TAG, "BLE device connection failed for node $nodeId")
                 val conn = connectionMap[nodeId]
                 conn?.state = ConnectionState.DISCOVERED
                 conn?.espDevice = null
@@ -674,7 +687,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
             object : ResponseListener {
                 override fun onSuccess(returnData: ByteArray?) {
                     if (returnData == null || returnData.isEmpty()) {
-                        Log.w(TAG, "get_params returned empty data for $nodeId")
+                        ProvisioningLog.w(TAG, "get_params returned empty data for $nodeId")
                         handler.post { onResult(null) }
                         return
                     }
@@ -682,14 +695,14 @@ class BleLocalControlManager private constructor(private val appContext: Context
                     try {
                         val response = rmaker_prov_local_ctrl.EspRmakerProvLocalCtrl.RMakerLocalCtrlPayload.parseFrom(returnData)
                         if (response.msg != rmaker_prov_local_ctrl.EspRmakerProvLocalCtrl.RMakerLocalCtrlMsgType.TypeRespGetData) {
-                            Log.e(TAG, "Unexpected message type for $nodeId: ${response.msg}")
+                            ProvisioningLog.e(TAG, "Unexpected message type for $nodeId: ${response.msg}")
                             handler.post { onResult(null) }
                             return
                         }
 
                         val respGetData = response.respGetData
                         if (respGetData.status != rmaker_prov_local_ctrl.EspRmakerProvLocalCtrl.RMakerLocalCtrlStatus.Success) {
-                            Log.e(TAG, "Device returned error for $nodeId: ${respGetData.status}")
+                            ProvisioningLog.e(TAG, "Device returned error for $nodeId: ${respGetData.status}")
                             handler.post { onResult(null) }
                             return
                         }
@@ -700,7 +713,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                         val respTotalLen = buf.totalLen
 
                         if (respOffset != offset) {
-                            Log.e(TAG, "Offset mismatch for $nodeId: expected $offset, got $respOffset")
+                            ProvisioningLog.e(TAG, "Offset mismatch for $nodeId: expected $offset, got $respOffset")
                             handler.post { onResult(null) }
                             return
                         }
@@ -712,7 +725,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                         }
                         val newOffset = offset + payloadBytes.size
 
-                        Log.d(TAG, "Params chunk for $nodeId: offset=$respOffset, len=${payloadBytes.size}, progress=$newOffset/$currentTotalLen")
+                        ProvisioningLog.d(TAG, "Params chunk for $nodeId: offset=$respOffset, len=${payloadBytes.size}, progress=$newOffset/$currentTotalLen")
 
                         if (newOffset >= currentTotalLen) {
                             val completeData = ByteArray(dataBuffer.size)
@@ -720,26 +733,26 @@ class BleLocalControlManager private constructor(private val appContext: Context
                                 completeData[i] = dataBuffer[i]
                             }
                             val jsonStr = String(completeData, Charsets.UTF_8)
-                            Log.d(TAG, "Complete params JSON for $nodeId: $jsonStr")
+                            ProvisioningLog.d(TAG, "Complete params JSON for $nodeId: $jsonStr")
 
                             try {
                                 val jsonObject = org.json.JSONObject(jsonStr)
                                 handler.post { onResult(jsonObject) }
                             } catch (e: org.json.JSONException) {
-                                Log.e(TAG, "Failed to parse params JSON for $nodeId: ${e.message}")
+                                ProvisioningLog.e(TAG, "Failed to parse params JSON for $nodeId: ${e.message}")
                                 handler.post { onResult(null) }
                             }
                         } else {
                             getParamsChunk(espDevice, nodeId, newOffset, dataBuffer, currentTotalLen, onResult)
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to parse get_params response for $nodeId: ${e.message}")
+                        ProvisioningLog.e(TAG, "Failed to parse get_params response for $nodeId: ${e.message}")
                         handler.post { onResult(null) }
                     }
                 }
 
                 override fun onFailure(e: Exception) {
-                    Log.e(TAG, "get_params chunk failed for $nodeId: ${e.message}")
+                    ProvisioningLog.e(TAG, "get_params chunk failed for $nodeId: ${e.message}")
                     handler.post { onResult(null) }
                 }
             }
@@ -755,14 +768,14 @@ class BleLocalControlManager private constructor(private val appContext: Context
     fun getParamsWithTimestamp(nodeId: String, onResult: (org.json.JSONObject?) -> Unit) {
         val espDevice = getEspDevice(nodeId)
         if (espDevice == null) {
-            Log.e(TAG, "Cannot get params with timestamp: BLE not connected for node $nodeId")
+            ProvisioningLog.e(TAG, "Cannot get params with timestamp: BLE not connected for node $nodeId")
             onResult(null)
             return
         }
 
         val busy = proxyReadInProgress.getOrPut(nodeId) { AtomicBoolean(false) }
         if (!busy.compareAndSet(false, true)) {
-            Log.w(TAG, "getParamsWithTimestamp already in progress for $nodeId, skipping duplicate call")
+            ProvisioningLog.w(TAG, "getParamsWithTimestamp already in progress for $nodeId, skipping duplicate call")
             onResult(null)
             return
         }
@@ -773,7 +786,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
         }
 
         val timestamp = System.currentTimeMillis() / 1000
-        Log.d(TAG, "Getting params with timestamp=$timestamp for $nodeId")
+        ProvisioningLog.d(TAG, "Getting params with timestamp=$timestamp for $nodeId")
         getParamsChunkWithTimestamp(espDevice, nodeId, 0, timestamp, ArrayList(), null, wrappedResult)
     }
 
@@ -809,7 +822,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
             object : ResponseListener {
                 override fun onSuccess(returnData: ByteArray?) {
                     if (returnData == null || returnData.isEmpty()) {
-                        Log.w(TAG, "get_params (timestamped) returned empty data for $nodeId")
+                        ProvisioningLog.w(TAG, "get_params (timestamped) returned empty data for $nodeId")
                         handler.post { onResult(null) }
                         return
                     }
@@ -817,14 +830,14 @@ class BleLocalControlManager private constructor(private val appContext: Context
                     try {
                         val response = rmaker_prov_local_ctrl.EspRmakerProvLocalCtrl.RMakerLocalCtrlPayload.parseFrom(returnData)
                         if (response.msg != rmaker_prov_local_ctrl.EspRmakerProvLocalCtrl.RMakerLocalCtrlMsgType.TypeRespGetData) {
-                            Log.e(TAG, "Unexpected message type (timestamped) for $nodeId: ${response.msg}")
+                            ProvisioningLog.e(TAG, "Unexpected message type (timestamped) for $nodeId: ${response.msg}")
                             handler.post { onResult(null) }
                             return
                         }
 
                         val respGetData = response.respGetData
                         if (respGetData.status != rmaker_prov_local_ctrl.EspRmakerProvLocalCtrl.RMakerLocalCtrlStatus.Success) {
-                            Log.e(TAG, "Device returned error (timestamped) for $nodeId: ${respGetData.status}")
+                            ProvisioningLog.e(TAG, "Device returned error (timestamped) for $nodeId: ${respGetData.status}")
                             handler.post { onResult(null) }
                             return
                         }
@@ -835,7 +848,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                         val respTotalLen = buf.totalLen
 
                         if (respOffset != offset) {
-                            Log.e(TAG, "Offset mismatch (timestamped) for $nodeId: expected $offset, got $respOffset")
+                            ProvisioningLog.e(TAG, "Offset mismatch (timestamped) for $nodeId: expected $offset, got $respOffset")
                             handler.post { onResult(null) }
                             return
                         }
@@ -847,7 +860,7 @@ class BleLocalControlManager private constructor(private val appContext: Context
                         }
                         val newOffset = offset + payloadBytes.size
 
-                        Log.d(TAG, "Timestamped params chunk for $nodeId: offset=$respOffset, len=${payloadBytes.size}, progress=$newOffset/$currentTotalLen")
+                        ProvisioningLog.d(TAG, "Timestamped params chunk for $nodeId: offset=$respOffset, len=${payloadBytes.size}, progress=$newOffset/$currentTotalLen")
 
                         if (newOffset >= currentTotalLen) {
                             val completeData = ByteArray(dataBuffer.size)
@@ -855,26 +868,26 @@ class BleLocalControlManager private constructor(private val appContext: Context
                                 completeData[i] = dataBuffer[i]
                             }
                             val jsonStr = String(completeData, Charsets.UTF_8)
-                            Log.d(TAG, "Complete timestamped params JSON for $nodeId: $jsonStr")
+                            ProvisioningLog.d(TAG, "Complete timestamped params JSON for $nodeId: $jsonStr")
 
                             try {
                                 val jsonObject = org.json.JSONObject(jsonStr)
                                 handler.post { onResult(jsonObject) }
                             } catch (e: org.json.JSONException) {
-                                Log.e(TAG, "Failed to parse timestamped params JSON for $nodeId: ${e.message}")
+                                ProvisioningLog.e(TAG, "Failed to parse timestamped params JSON for $nodeId: ${e.message}")
                                 handler.post { onResult(null) }
                             }
                         } else {
                             getParamsChunkWithTimestamp(espDevice, nodeId, newOffset, null, dataBuffer, currentTotalLen, onResult)
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to parse timestamped get_params response for $nodeId: ${e.message}")
+                        ProvisioningLog.e(TAG, "Failed to parse timestamped get_params response for $nodeId: ${e.message}")
                         handler.post { onResult(null) }
                     }
                 }
 
                 override fun onFailure(e: Exception) {
-                    Log.e(TAG, "get_params (timestamped) chunk failed for $nodeId: ${e.message}")
+                    ProvisioningLog.e(TAG, "get_params (timestamped) chunk failed for $nodeId: ${e.message}")
                     handler.post { onResult(null) }
                 }
             }
@@ -900,11 +913,11 @@ class BleLocalControlManager private constructor(private val appContext: Context
      */
     private fun handleBleOperationTimeout(nodeId: String) {
         val conn = connectionMap[nodeId] ?: return
-        Log.w(TAG, "Cleaning up stale BLE connection for $nodeId")
+        ProvisioningLog.w(TAG, "Cleaning up stale BLE connection for $nodeId")
         try {
             conn.espDevice?.disconnectDevice()
         } catch (e: Exception) {
-            Log.e(TAG, "Error disconnecting stale device $nodeId: ${e.message}")
+            ProvisioningLog.e(TAG, "Error disconnecting stale device $nodeId: ${e.message}")
         }
         conn.espDevice = null
         if (conn.bluetoothDevice != null) {
