@@ -307,6 +307,11 @@
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme.NoActionBar" />
         <activity
+            android:name="com.espressif.ui.activities.MainControllerDashboardActivity"
+            android:label="主控制器"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
             android:name="com.espressif.ui.activities.NodeDetailsActivity"
             android:label="@string/title_activity_node_details"
             android:screenOrientation="portrait"

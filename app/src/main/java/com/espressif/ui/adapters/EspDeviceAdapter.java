@@ -50,6 +50,7 @@ import com.espressif.matter.RemoteControlApiHelper;
 import com.espressif.rainmaker.R;
 import com.espressif.ui.Utils;
 import com.espressif.ui.activities.EspDeviceActivity;
+import com.espressif.ui.activities.MainControllerDashboardActivity;
 import com.espressif.ui.models.Device;
 import com.espressif.ui.models.EspNode;
 import com.espressif.ui.models.Param;
@@ -606,7 +607,11 @@ public class EspDeviceAdapter extends RecyclerView.Adapter<EspDeviceAdapter.Devi
                 if (isMatterController && !isMatterCtrlSetupDone) {
                     controllerNeedsAccessWarning(rmNodeId, R.string.dialog_msg_matter_controller, false, false);
                 } else {
-                    Intent intent = new Intent(context, EspDeviceActivity.class);
+                    EspNode currentNode = espApp.nodeMap.get(device.getNodeId());
+                    Class<?> targetActivity = MainControllerDashboardActivity.isMainControllerDevice(device, currentNode)
+                            ? MainControllerDashboardActivity.class
+                            : EspDeviceActivity.class;
+                    Intent intent = new Intent(context, targetActivity);
                     intent.putExtra(AppConstants.KEY_ESP_DEVICE, device);
                     context.startActivity(intent);
                 }

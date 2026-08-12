@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -533,7 +534,7 @@ private fun MainControllerDashboard(
 }
 
 @Composable
-private fun DashboardCard(content: @Composable Column.() -> Unit) {
+private fun DashboardCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -703,14 +704,14 @@ private fun WaterTank(level: Int, low: Int, high: Int, modifier: Modifier = Modi
             DashboardDanger,
             Offset(tankLeft - 8.dp.toPx(), yForPercent(high)),
             Offset(tankRight + 8.dp.toPx(), yForPercent(high)),
-            width = 2.dp.toPx(),
+            strokeWidth = 2.dp.toPx(),
             pathEffect = dash,
         )
         drawLine(
             DashboardWarning,
             Offset(tankLeft - 8.dp.toPx(), yForPercent(low)),
             Offset(tankRight + 8.dp.toPx(), yForPercent(low)),
-            width = 2.dp.toPx(),
+            strokeWidth = 2.dp.toPx(),
             pathEffect = dash,
         )
         if (level in 0..100) {
@@ -718,7 +719,7 @@ private fun WaterTank(level: Int, low: Int, high: Int, modifier: Modifier = Modi
                 DashboardBlue,
                 Offset(tankRight + 5.dp.toPx(), yForPercent(level)),
                 Offset(tankRight + 23.dp.toPx(), yForPercent(level)),
-                width = 3.dp.toPx(),
+                strokeWidth = 3.dp.toPx(),
             )
         }
     }
