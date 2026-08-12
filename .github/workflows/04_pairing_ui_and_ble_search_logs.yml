@@ -49,6 +49,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/implement_pairing_ui_and_ble_search_logs.py
           python3 scripts/implement_pairing_ui_and_ble_search_logs.py
+          sed -i 's/ProvisioningLog.uiNotice(this, TAG, "手动配置 Wi-Fi："/ProvisioningLog.uiNotice(WiFiConfigActivity.this, TAG, "手动配置 Wi-Fi："/' app/src/main/java/com/espressif/ui/activities/WiFiConfigActivity.java
           grep -R "\[UI进度\]" -n app/src/main/java/com/espressif/utils/ProvisioningLog.java
           grep -R "BLE搜索结果" -n app/src/main/java/com/espressif/ui/activities/BLEProvisionLanding.java
           grep -R "已绑定BLE搜索结果" -n app/src/main/java/com/espressif/ble/BleLocalControlManager.kt
@@ -93,6 +94,7 @@ jobs:
           reprov = Path('app/src/main/java/com/espressif/ui/activities/BleWifiProvisionActivity.java').read_text(encoding='utf-8')
           claim = Path('app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java').read_text(encoding='utf-8')
           prov = Path('app/src/main/java/com/espressif/ui/activities/ProvisionActivity.java').read_text(encoding='utf-8')
+          manual = Path('app/src/main/java/com/espressif/ui/activities/WiFiConfigActivity.java').read_text(encoding='utf-8')
           assert 'public static void uiProgress(String tag, String state, CharSequence text)' in log
           assert 'password|passphrase|passwd|pwd|pop|' in log
           assert 'rssi=' in ble and 'serviceUuids=' in ble and 'duplicate=' in ble
@@ -100,6 +102,7 @@ jobs:
           assert '已绑定重配网 3/3' in reprov
           assert 'Claim 5/5' in claim
           assert '密码已隐藏' in prov
+          assert 'ProvisioningLog.uiNotice(WiFiConfigActivity.this' in manual
           assert 'getSharedPreferences(' not in log
           assert 'FileOutputStream(' not in log
           assert 'MAX_LINES = 3000' in log
