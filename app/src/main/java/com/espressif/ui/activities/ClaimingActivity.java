@@ -14,6 +14,7 @@
 
 package com.espressif.ui.activities;
 
+import com.espressif.utils.ProvisioningAlertDialogBuilder;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
@@ -907,7 +908,7 @@ public class ClaimingActivity extends AppCompatActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                AlertDialog.Builder builder = new AlertDialog.Builder(ClaimingActivity.this);
+                AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(ClaimingActivity.this);
                 builder.setCancelable(false);
                 builder.setTitle(R.string.skip_wifi_provisioning_title);
                 builder.setMessage(R.string.skip_wifi_provisioning_msg);
@@ -995,7 +996,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void showAlertForDeviceDisconnected() {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setCancelable(false);
         builder.setTitle(R.string.error_title);
         builder.setMessage(R.string.dialog_msg_ble_device_disconnection);

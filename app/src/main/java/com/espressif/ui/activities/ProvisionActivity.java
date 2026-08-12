@@ -14,6 +14,8 @@
 
 package com.espressif.ui.activities;
 
+import com.espressif.utils.ProvisioningAlertDialogBuilder;
+import com.espressif.utils.ProvisioningToast;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
@@ -531,7 +533,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(ProvisionActivity.this, R.string.error_session, Toast.LENGTH_LONG).show();
+                            ProvisioningToast.makeText(ProvisionActivity.this, R.string.error_session, Toast.LENGTH_LONG).show();
                         }
                     });
                 }
@@ -642,7 +644,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(ProvisionActivity.this, R.string.error_session, Toast.LENGTH_LONG).show();
+                            ProvisioningToast.makeText(ProvisionActivity.this, R.string.error_session, Toast.LENGTH_LONG).show();
                         }
                     });
                 }
@@ -1485,7 +1487,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void showAlertForDeviceDisconnected() {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setCancelable(false);
         builder.setTitle(R.string.error_title);
         builder.setMessage(R.string.dialog_msg_ble_device_disconnection);
@@ -2037,7 +2039,7 @@ public class ProvisionActivity extends AppCompatActivity {
             alertMsg = errorMessage + " " + wifiResetMsg;
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setTitle(title);
         builder.setMessage(alertMsg);
         builder.setCancelable(false);
@@ -2073,7 +2075,7 @@ public class ProvisionActivity extends AppCompatActivity {
         // Set SSID as title
         String title = ssidValue != null ? ssidValue : getString(R.string.join_other_network);
 
-        AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
+        AlertDialog.Builder alertDialogBuilder = new ProvisioningAlertDialogBuilder(this);
         alertDialogBuilder.setView(dialogView);
         alertDialogBuilder.setTitle(title);
         alertDialogBuilder.setPositiveButton(R.string.provision, null);
@@ -2174,7 +2176,7 @@ public class ProvisionActivity extends AppCompatActivity {
      * Show alert dialog when reset command fails
      */
     private void showResetPasswordFailedAlert(String message) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setTitle(getString(R.string.title_activity_provisioning));
         builder.setMessage(message);
         builder.setCancelable(false);

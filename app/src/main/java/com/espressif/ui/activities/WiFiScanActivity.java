@@ -14,6 +14,8 @@
 
 package com.espressif.ui.activities;
 
+import com.espressif.utils.ProvisioningAlertDialogBuilder;
+import com.espressif.utils.ProvisioningToast;
 import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -302,7 +304,7 @@ public class WiFiScanActivity extends AppCompatActivity {
         networksPrefEditor.apply();
 
         if (TextUtils.isEmpty(ssid) || ssid.equals(getString(R.string.select_network))) {
-            Toast.makeText(WiFiScanActivity.this, R.string.error_network_select, Toast.LENGTH_LONG).show();
+            ProvisioningToast.makeText(WiFiScanActivity.this, R.string.error_network_select, Toast.LENGTH_LONG).show();
         } else {
             ProvisioningLog.i(TAG, "Wi-Fi selected for provisioning, ssid=" + ssid + "; password hidden");
             ProvisioningLog.uiNotice(this, TAG, "已选择 Wi-Fi：" + ssid + "，密码内容已隐藏");
@@ -349,7 +351,7 @@ public class WiFiScanActivity extends AppCompatActivity {
                     public void run() {
                         hideLoading();
                         updateProgressAndScanBtn(false);
-                        Toast.makeText(WiFiScanActivity.this, "Failed to get Wi-Fi scan list", Toast.LENGTH_LONG).show();
+                        ProvisioningToast.makeText(WiFiScanActivity.this, "Failed to get Wi-Fi scan list", Toast.LENGTH_LONG).show();
                     }
                 });
             }
@@ -468,7 +470,7 @@ public class WiFiScanActivity extends AppCompatActivity {
 
     private void askForNetwork() {
 
-        final AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        final AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         LayoutInflater inflater = this.getLayoutInflater();
         final View dialogView = inflater.inflate(R.layout.dialog_wifi_network, null);
         builder.setView(dialogView);
@@ -550,7 +552,7 @@ public class WiFiScanActivity extends AppCompatActivity {
 
     private void showAlertForDeviceDisconnected() {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setCancelable(false);
         builder.setTitle(R.string.error_title);
         builder.setMessage(R.string.dialog_msg_ble_device_disconnection);

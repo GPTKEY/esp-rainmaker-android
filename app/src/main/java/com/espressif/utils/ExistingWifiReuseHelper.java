@@ -262,7 +262,7 @@ public final class ExistingWifiReuseHelper {
             final CurrentWifiStatus status,
             final DecisionListener listener) {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(activity);
         builder.setCancelable(false);
         builder.setTitle(R.string.current_wifi_available_title);
         builder.setMessage(activity.getString(R.string.current_wifi_available_message, status.getSsid()));

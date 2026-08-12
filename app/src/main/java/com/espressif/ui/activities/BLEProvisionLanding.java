@@ -14,6 +14,8 @@
 
 package com.espressif.ui.activities;
 
+import com.espressif.utils.ProvisioningAlertDialogBuilder;
+import com.espressif.utils.ProvisioningToast;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -114,7 +116,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
         // Use this check to determine whether BLE is supported on the device.  Then you can
         // selectively disable BLE-related features.
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
-            Toast.makeText(this, R.string.error_ble_not_supported, Toast.LENGTH_SHORT).show();
+            ProvisioningToast.makeText(this, R.string.error_ble_not_supported, Toast.LENGTH_SHORT).show();
             finish();
         }
 
@@ -123,7 +125,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
         // Checks if Bluetooth is supported on the device.
         if (bleAdapter == null) {
-            Toast.makeText(this, R.string.error_bluetooth_not_supported, Toast.LENGTH_SHORT).show();
+            ProvisioningToast.makeText(this, R.string.error_bluetooth_not_supported, Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -256,7 +258,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
                 progressBar.setVisibility(View.GONE);
                 isConnecting = false;
                 isDeviceConnected = false;
-                Toast.makeText(BLEProvisionLanding.this, "Device disconnected", Toast.LENGTH_LONG).show();
+                ProvisioningToast.makeText(BLEProvisionLanding.this, "Device disconnected", Toast.LENGTH_LONG).show();
                 break;
 
             case ESPConstants.EVENT_DEVICE_CONNECTION_FAILED:
@@ -382,7 +384,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             updateProgressAndScanBtn();
         } else {
             ProvisioningLog.e(TAG, "Not able to start scan as Location permission is not granted.");
-            Toast.makeText(BLEProvisionLanding.this, "Please give location permission to start BLE scan", Toast.LENGTH_LONG).show();
+            ProvisioningToast.makeText(BLEProvisionLanding.this, "Please give location permission to start BLE scan", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -395,11 +397,11 @@ public class BLEProvisionLanding extends AppCompatActivity {
             updateProgressAndScanBtn();
         } else {
             ProvisioningLog.e(TAG, "Not able to stop scan as Location permission is not granted.");
-            Toast.makeText(BLEProvisionLanding.this, "Please give location permission to stop BLE scan", Toast.LENGTH_LONG).show();
+            ProvisioningToast.makeText(BLEProvisionLanding.this, "Please give location permission to stop BLE scan", Toast.LENGTH_LONG).show();
         }
 
         if (deviceList.size() <= 0) {
-            Toast.makeText(BLEProvisionLanding.this, R.string.error_no_ble_device, Toast.LENGTH_SHORT).show();
+            ProvisioningToast.makeText(BLEProvisionLanding.this, R.string.error_no_ble_device, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -426,7 +428,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
     private void alertForDeviceNotSupported(String msg) {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setCancelable(false);
 
         builder.setTitle(R.string.error_title);
@@ -556,7 +558,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             showSkipWifiProvisioningDialog();
         } catch (Exception e) {
             ProvisioningLog.e(TAG, "Error showing skip WiFi dialog: " + e.getMessage(), e);
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            ProvisioningToast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
         return true;
     }
@@ -628,7 +630,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
         @Override
         public void scanStartFailed() {
-            Toast.makeText(BLEProvisionLanding.this, "Please turn on Bluetooth to connect BLE device", Toast.LENGTH_SHORT).show();
+            ProvisioningToast.makeText(BLEProvisionLanding.this, "Please turn on Bluetooth to connect BLE device", Toast.LENGTH_SHORT).show();
         }
 
         @Override
@@ -716,7 +718,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             handler.postDelayed(disconnectDeviceTask, DEVICE_CONNECT_TIMEOUT);
         } else {
             ProvisioningLog.e(TAG, "Not able to connect device as permission is not granted.");
-            Toast.makeText(BLEProvisionLanding.this, "Please give permission to connect device", Toast.LENGTH_LONG).show();
+            ProvisioningToast.makeText(BLEProvisionLanding.this, "Please give permission to connect device", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -744,7 +746,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
     private void askForPrefix() {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
         builder.setCancelable(true);
 
         LayoutInflater layoutInflaterAndroid = LayoutInflater.from(this);
@@ -841,7 +843,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
         }
         
         try {
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            AlertDialog.Builder builder = new ProvisioningAlertDialogBuilder(this);
             builder.setCancelable(false);
             builder.setTitle(R.string.skip_wifi_provisioning_title);
             builder.setMessage(R.string.skip_wifi_provisioning_msg);

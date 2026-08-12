@@ -14,6 +14,8 @@
 
 package com.espressif.ui.activities;
 
+import com.espressif.utils.ProvisioningAlertDialogBuilder;
+import com.espressif.utils.ProvisioningToast;
 import android.os.Bundle;
 import android.text.TextUtils;
 import com.espressif.utils.ProvisioningLog;
@@ -94,7 +96,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
         espDevice = bleManager.getEspDevice(nodeId);
         if (espDevice == null) {
             ProvisioningLog.e(TAG, "ESPDevice is null — BLE not connected for " + nodeId);
-            Toast.makeText(this, R.string.ble_prov_failed, Toast.LENGTH_SHORT).show();
+            ProvisioningToast.makeText(this, R.string.ble_prov_failed, Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -211,7 +213,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         ProvisioningLog.e(TAG, "Wi-Fi scan failed: " + e.getMessage());
                         hideScanLoading();
-                        Toast.makeText(BleWifiProvisionActivity.this,
+                        ProvisioningToast.makeText(BleWifiProvisionActivity.this,
                                 "Wi-Fi scan failed", Toast.LENGTH_SHORT).show();
                     });
                 }
@@ -227,7 +229,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
         final EditText etSsid = dialogView.findViewById(R.id.et_ssid);
         final EditText etPwd = dialogView.findViewById(R.id.et_password);
 
-        new AlertDialog.Builder(this)
+        new ProvisioningAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_title_network_info)
                 .setView(dialogView)
                 .setPositiveButton(R.string.btn_join, (dialog, which) -> {
@@ -244,7 +246,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
 
     private void onProvisionClicked() {
         if (TextUtils.isEmpty(ssid)) {
-            Toast.makeText(this, R.string.error_ssid_empty, Toast.LENGTH_SHORT).show();
+            ProvisioningToast.makeText(this, R.string.error_ssid_empty, Toast.LENGTH_SHORT).show();
             return;
         }
 
