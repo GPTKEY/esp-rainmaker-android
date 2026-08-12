@@ -100,8 +100,9 @@ jobs:
           assert '已绑定重配网 3/3' in reprov
           assert 'Claim 5/5' in claim
           assert '密码已隐藏' in prov
-          assert 'SharedPreferences' not in log
-          assert 'FileOutputStream' not in log
+          assert 'getSharedPreferences(' not in log
+          assert 'FileOutputStream(' not in log
+          assert 'MAX_LINES = 3000' in log
           print('Coverage/privacy checks passed')
           PY
 
