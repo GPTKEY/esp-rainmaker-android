@@ -1,0 +1,133 @@
+name: Implement In-App Provisioning Logs
+
+on:
+  push:
+    branches:
+      - codex/existing-wifi-reuse-first-pairing
+    paths:
+      - "scripts/implement_in_app_provisioning_logs.py"
+      - ".github/workflows/03_in_app_provisioning_logs_implementation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: implement-in-app-provisioning-logs
+  cancel-in-progress: true
+
+jobs:
+  implement-build-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/existing-wifi-reuse-first-pairing
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python3 -m py_compile scripts/implement_in_app_provisioning_logs.py
+          python3 scripts/implement_in_app_provisioning_logs.py
+          grep -R "title_activity_logs" -n app/src/main
+          grep -R "ProvisioningLog" -n app/src/main/java/com/espressif/ui/activities/BLEProvisionLanding.java
+          grep -R "ProvisioningLog" -n app/src/main/java/com/espressif/ui/activities/ClaimingActivity.java
+          grep -R "ProvisioningLog" -n app/src/main/java/com/espressif/ui/activities/ProvisionActivity.java
+
+      - name: Create CI build properties
+        shell: bash
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=${ANDROID_SDK_ROOT}
+          appName=ESP RainMaker In-App Logs Test
+          transport=Both
+          security=2
+          security2Username=wifiprov
+          security2UsernameThread=threadprov
+          deviceNamePrefix=PROV_
+          wifiScanSource=Device
+          isChinaRegion=false
+          isLocalControlSupported=true
+          isScheduleSupported=true
+          isSceneSupported=true
+          isNodeGroupingSupported=true
+          isNodeSharingSupported=true
+          isAutomationSupported=true
+          isOtaSupported=false
+          isMatterSupported=false
+          isCommandResponseSupported=false
+          EOF
+
+          if [ ! -f app/google-services.json ] && [ -f app/google-services.json.template ]; then
+            cp app/google-services.json.template app/google-services.json
+          fi
+
+      - name: Verify memory-only and redaction boundaries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          log = Path('app/src/main/java/com/espressif/utils/ProvisioningLog.java').read_text(encoding='utf-8')
+          assert 'SharedPreferences' not in log
+          assert 'FileOutputStream' not in log
+          assert 'MAX_LINES = 3000' in log
+          assert 'KEY_VALUE_SECRET' in log
+          assert 'resetForProcess()' in log
+          app = Path('app/src/main/java/com/espressif/EspApplication.java').read_text(encoding='utf-8')
+          assert 'ProvisioningLog.resetForProcess();' in app
+          settings = Path('app/src/main/java/com/espressif/ui/fragments/UserProfileFragment.java').read_text(encoding='utf-8')
+          about_pos = settings.index('title_activity_about')
+          logs_pos = settings.index('title_activity_logs')
+          prefs_pos = settings.index('preferences', logs_pos)
+          assert about_pos < logs_pos < prefs_pos
+          print('Log boundaries verified')
+          PY
+
+      - name: Build debug APK
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Commit product source changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main
+          if git diff --cached --quiet; then
+            echo "No product changes to commit"
+          else
+            git commit -m "功能：设置中增加本次启动配网日志"
+            git push origin HEAD:codex/existing-wifi-reuse-first-pairing
+          fi
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: in-app-provisioning-logs-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
