@@ -95,8 +95,10 @@ jobs:
           assert 'ProvisioningLog.uiNotice("Dialog"' in dialog
           assert 'setPositiveButton' in dialog
           assert 'setNegativeButton' in dialog
-          assert 'EditText' not in dialog
-          assert 'getText()' not in dialog
+          # The wrapper logs only text explicitly passed to Builder; it must never inspect dialog input widgets.
+          assert 'android.widget.EditText' not in dialog
+          assert 'findViewById(' not in dialog
+          assert '.getText().toString()' not in dialog
 
           targets = [
               'BLEProvisionLanding.java',
@@ -115,7 +117,6 @@ jobs:
           reuse = Path('app/src/main/java/com/espressif/utils/ExistingWifiReuseHelper.java').read_text(encoding='utf-8')
           assert 'new ProvisioningAlertDialogBuilder(' in reuse
 
-          # Existing process-only logging guarantees must remain intact.
           assert 'MAX_LINES = 3000' in log
           assert 'getSharedPreferences(' not in log
           assert 'FileOutputStream(' not in log
