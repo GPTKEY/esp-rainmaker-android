@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主机配置同步专用文案，独立于上游 RainMaker 大型 strings.xml，降低合并冲突。 -->
+    <string name="host_remote_control_disabled">设备当前为只读模式。请先在设备本机开启“允许远程控制”。</string>
+    <string name="host_cloud_offline">主机当前云离线，暂时不能修改设置。</string>
+    <string name="host_state_incomplete">主机控制状态不完整，请刷新设备状态后重试。</string>
+    <string name="host_output_requires_manual">本机输出只能在“手动”模式下由手机控制。</string>
+    <string name="host_invalid_work_mode">不支持的工作模式。</string>
+    <string name="host_invalid_thresholds">低液位阈值必须小于高液位阈值，且两者必须位于 0～100% 范围内。</string>
+    <string name="host_read_only_parameter">该设置在手机端为只读。</string>
+    <string name="host_param_not_found">设备配置已经变化，请刷新页面后重试。</string>
+    <string name="host_malformed_request">配置请求格式无效。</string>
+
+    <string name="host_work_mode_fill">蓄水</string>
+    <string name="host_work_mode_drain">排水</string>
+    <string name="host_work_mode_timer">定时</string>
+    <string name="host_work_mode_manual">手动</string>
+    <string name="host_work_mode_unknown">未知</string>
+</resources>

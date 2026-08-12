@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Host configuration sync: keep these strings separate from the upstream RainMaker resource file. -->
+    <string name="host_remote_control_disabled">Device is in read-only mode. Enable remote control on the device before changing settings.</string>
+    <string name="host_cloud_offline">The host is not connected to the cloud. Settings cannot be changed right now.</string>
+    <string name="host_state_incomplete">Host control state is incomplete. Refresh the device state and try again.</string>
+    <string name="host_output_requires_manual">Local output can only be changed in Manual mode.</string>
+    <string name="host_invalid_work_mode">Unsupported work mode.</string>
+    <string name="host_invalid_thresholds">Low threshold must be lower than high threshold, and both must be within 0–100%.</string>
+    <string name="host_read_only_parameter">This setting is read-only on the mobile app.</string>
+    <string name="host_param_not_found">The device configuration changed. Refresh the page and try again.</string>
+    <string name="host_malformed_request">Invalid configuration request.</string>
+
+    <string name="host_work_mode_fill">Fill</string>
+    <string name="host_work_mode_drain">Drain</string>
+    <string name="host_work_mode_timer">Timer</string>
+    <string name="host_work_mode_manual">Manual</string>
+    <string name="host_work_mode_unknown">Unknown</string>
+</resources>

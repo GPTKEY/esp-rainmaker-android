@@ -1,0 +1,129 @@
+name: Host Configuration Sync Mobile App
+
+on:
+  push:
+    branches:
+      - codex/host-configuration-sync-mobile-app
+    paths:
+      - "app/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/03_host_configuration_sync_mobile_app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-configuration-sync-mobile-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-host-configuration-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Create CI build properties
+        shell: bash
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=${ANDROID_SDK_ROOT}
+          appName=ESP RainMaker Host Config Test
+          transport=Both
+          security=2
+          security2Username=wifiprov
+          security2UsernameThread=threadprov
+          deviceNamePrefix=PROV_
+          wifiScanSource=Device
+          isChinaRegion=false
+          isLocalControlSupported=true
+          isScheduleSupported=true
+          isSceneSupported=true
+          isNodeGroupingSupported=true
+          isNodeSharingSupported=true
+          isAutomationSupported=true
+          isOtaSupported=false
+          isMatterSupported=false
+          isCommandResponseSupported=false
+          EOF
+
+          if [ ! -f app/google-services.json ] && [ -f app/google-services.json.template ]; then
+            cp app/google-services.json.template app/google-services.json
+          fi
+
+      - name: Verify host configuration implementation boundaries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          policy = Path('app/src/main/java/com/espressif/ui/hostconfig/HostConfigurationPolicy.java').read_text(encoding='utf-8')
+          updates = Path('app/src/main/java/com/espressif/ui/adapters/DeviceParamUpdates.java').read_text(encoding='utf-8')
+          dropdown = Path('app/src/main/java/com/espressif/ui/widgets/EspDropDown.java').read_text(encoding='utf-8')
+
+          required_policy = [
+              'RemoteControlEnabled',
+              'CloudOnline',
+              'WorkMode',
+              'OutputState',
+              'LowThreshold',
+              'HighThreshold',
+              'evaluateWriteRequest',
+              'WORK_MODE_MANUAL = 4',
+          ]
+          for token in required_policy:
+              assert token in policy, token
+
+          assert 'HostConfigurationPolicy.isThresholdParam(paramName)' in updates
+          assert 'HostConfigurationPolicy.evaluateWriteRequest' in updates
+          assert 'WorkModeDisplayAdapter' in dropdown
+          print('Host configuration implementation boundary checks passed')
+          PY
+
+      - name: Run host configuration unit tests
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest --tests "com.espressif.ui.hostconfig.HostConfigurationPolicyTest"
+
+      - name: Build debug APK
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
+        run: |
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-configuration-sync-mobile-app-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
