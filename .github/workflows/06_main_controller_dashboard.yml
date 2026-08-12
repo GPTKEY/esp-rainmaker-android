@@ -108,7 +108,20 @@ jobs:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          set +e
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee main-controller-dashboard-build.log
+          status=${PIPESTATUS[0]}
+          echo "GRADLE_EXIT_CODE=${status}" >> "$GITHUB_ENV"
+          exit "$status"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-controller-dashboard-build-log
+          path: main-controller-dashboard-build.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Commit compiled dashboard integration
         shell: bash
