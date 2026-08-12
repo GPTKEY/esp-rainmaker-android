@@ -720,4 +720,13 @@
     <string name="reconfigure_wifi">Reconfigure Wi-Fi</string>
     <string name="current_wifi_reuse_prov_step">Using current Wi-Fi connection</string>
 
+
+    <!-- In-memory provisioning logs -->
+    <string name="title_activity_logs">Logs</string>
+    <string name="logs_memory_only_note">BLE, Security, Claim, Wi-Fi and device-add logs from this app process. Logs are stored in memory only and are cleared when the app process restarts. Sensitive credentials are hidden.</string>
+    <string name="logs_copy">Copy</string>
+    <string name="logs_clear">Clear</string>
+    <string name="logs_empty">No provisioning logs in this app session.</string>
+    <string name="logs_copied">Logs copied</string>
+
 </resources>

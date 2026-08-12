@@ -29,7 +29,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
@@ -191,7 +191,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 
         super.onActivityResult(requestCode, resultCode, data);
-        Log.d(TAG, "onActivityResult, requestCode : " + requestCode + ", resultCode : " + resultCode);
+        ProvisioningLog.d(TAG, "onActivityResult, requestCode : " + requestCode + ", resultCode : " + resultCode);
 
         // User chose not to enable Bluetooth.
         if (requestCode == REQUEST_ENABLE_BT && resultCode == Activity.RESULT_CANCELED) {
@@ -217,7 +217,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
                     boolean permissionGranted = true;
                     for (int grantResult : grantResults) {
                         if (grantResult == PackageManager.PERMISSION_DENIED) {
-                            Log.e(TAG, "User has denied permission");
+                            ProvisioningLog.e(TAG, "User has denied permission");
                             permissionGranted = false;
                         }
                     }
@@ -236,13 +236,13 @@ public class BLEProvisionLanding extends AppCompatActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(DeviceConnectionEvent event) {
 
-        Log.d(TAG, "ON Device Prov Event RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "ON Device Prov Event RECEIVED : " + event.getEventType());
         handler.removeCallbacks(disconnectDeviceTask);
 
         switch (event.getEventType()) {
 
             case ESPConstants.EVENT_DEVICE_CONNECTED:
-                Log.e(TAG, "Device Connected Event Received");
+                ProvisioningLog.e(TAG, "Device Connected Event Received");
                 progressBar.setVisibility(View.GONE);
                 isConnecting = false;
                 isDeviceConnected = true;
@@ -342,7 +342,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
         } else {
             requestLocationAndBtPermission();
         }
-        Log.d(TAG, "Requested user enables Bluetooth.");
+        ProvisioningLog.d(TAG, "Requested user enables Bluetooth.");
     }
 
     private boolean hasLocationAndBtPermissions() {
@@ -367,6 +367,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
     private void startScan() {
 
+        ProvisioningLog.i(TAG, "BLE scan start, prefix=" + deviceNamePrefix);
         if (!hasPermissions() || isScanning) {
             return;
         }
@@ -379,7 +380,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             provisionManager.searchBleEspDevices(deviceNamePrefix, bleScanListener);
             updateProgressAndScanBtn();
         } else {
-            Log.e(TAG, "Not able to start scan as Location permission is not granted.");
+            ProvisioningLog.e(TAG, "Not able to start scan as Location permission is not granted.");
             Toast.makeText(BLEProvisionLanding.this, "Please give location permission to start BLE scan", Toast.LENGTH_LONG).show();
         }
     }
@@ -392,7 +393,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             provisionManager.stopBleScan();
             updateProgressAndScanBtn();
         } else {
-            Log.e(TAG, "Not able to stop scan as Location permission is not granted.");
+            ProvisioningLog.e(TAG, "Not able to stop scan as Location permission is not granted.");
             Toast.makeText(BLEProvisionLanding.this, "Please give location permission to stop BLE scan", Toast.LENGTH_LONG).show();
         }
 
@@ -449,13 +450,13 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
         ESPDevice espDevice = provisionManager.getEspDevice();
         if (espDevice == null) {
-            Log.e(TAG, "ESPDevice is null in checkDeviceCapabilities");
+            ProvisioningLog.e(TAG, "ESPDevice is null in checkDeviceCapabilities");
             return;
         }
 
         String versionInfo = espDevice.getVersionInfo();
         if (TextUtils.isEmpty(versionInfo)) {
-            Log.e(TAG, "Version info is empty - cannot check capabilities");
+            ProvisioningLog.e(TAG, "Version info is empty - cannot check capabilities");
             goToWifiScanListActivity();
             return;
         }
@@ -474,7 +475,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             ArrayList<String> rmakerExtraCaps) {
         try {
             JSONObject jsonObject = new JSONObject(versionInfo);
-            Log.d(TAG, "Version Info JSON: " + versionInfo);
+            ProvisioningLog.d(TAG, "Version Info JSON: " + versionInfo);
 
             JSONObject rmakerInfo = jsonObject.optJSONObject("rmaker");
             if (rmakerInfo != null) {
@@ -493,13 +494,13 @@ public class BLEProvisionLanding extends AppCompatActivity {
                     for (int i = 0; i < rmakerExtraCapabilities.length(); i++) {
                         String cap = rmakerExtraCapabilities.getString(i);
                         rmakerExtraCaps.add(cap);
-                        Log.d(TAG, "rmaker_extra cap: " + cap);
+                        ProvisioningLog.d(TAG, "rmaker_extra cap: " + cap);
                     }
                 }
             }
         } catch (JSONException e) {
             e.printStackTrace();
-            Log.e(TAG, "Version Info JSON parsing failed: " + e.getMessage());
+            ProvisioningLog.e(TAG, "Version Info JSON parsing failed: " + e.getMessage());
         }
     }
 
@@ -543,17 +544,17 @@ public class BLEProvisionLanding extends AppCompatActivity {
         boolean hasChResp = rmakerExtraCaps.contains(AppConstants.CAPABILITY_CHALLENGE_RESP)
                 || (deviceCaps != null && deviceCaps.contains(AppConstants.CAPABILITY_CHALLENGE_RESP));
 
-        Log.d(TAG, "BLE Local Control Check - hasLocalCtrlCap: " + hasLocalCtrl + ", hasChRespCap: " + hasChResp);
+        ProvisioningLog.d(TAG, "BLE Local Control Check - hasLocalCtrlCap: " + hasLocalCtrl + ", hasChRespCap: " + hasChResp);
 
         if (!hasLocalCtrl || !hasChResp) {
             return false;
         }
 
-        Log.d(TAG, "BLE local control capabilities found - showing skip Wi-Fi dialog");
+        ProvisioningLog.d(TAG, "BLE local control capabilities found - showing skip Wi-Fi dialog");
         try {
             showSkipWifiProvisioningDialog();
         } catch (Exception e) {
-            Log.e(TAG, "Error showing skip WiFi dialog: " + e.getMessage(), e);
+            ProvisioningLog.e(TAG, "Error showing skip WiFi dialog: " + e.getMessage(), e);
             Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
         return true;
@@ -634,10 +635,10 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (ActivityCompat.checkSelfPermission(BLEProvisionLanding.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "====== onPeripheralFound ===== " + device.getName());
+                    ProvisioningLog.d(TAG, "====== onPeripheralFound ===== " + device.getName());
                 }
             } else {
-                Log.d(TAG, "====== onPeripheralFound ===== " + device.getName());
+                ProvisioningLog.d(TAG, "====== onPeripheralFound ===== " + device.getName());
             }
 
             boolean deviceExists = false;
@@ -646,7 +647,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             if (scanResult.getScanRecord().getServiceUuids() != null && scanResult.getScanRecord().getServiceUuids().size() > 0) {
                 serviceUuid = scanResult.getScanRecord().getServiceUuids().get(0).toString();
             }
-            Log.d(TAG, "Add service UUID : " + serviceUuid);
+            ProvisioningLog.d(TAG, "Add service UUID : " + serviceUuid);
 
             if (bluetoothDevices.containsKey(device)) {
                 deviceExists = true;
@@ -663,13 +664,14 @@ public class BLEProvisionLanding extends AppCompatActivity {
 
         @Override
         public void scanCompleted() {
+            ProvisioningLog.i(TAG, "BLE scan completed, devices=" + deviceList.size());
             isScanning = false;
             updateProgressAndScanBtn();
         }
 
         @Override
         public void onFailure(Exception e) {
-            Log.e(TAG, e.getMessage());
+            ProvisioningLog.e(TAG, e.getMessage());
             e.printStackTrace();
         }
     };
@@ -685,7 +687,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
         this.position = deviceClickedPosition;
         BleDevice bleDevice = deviceList.get(deviceClickedPosition);
         String uuid = bluetoothDevices.get(bleDevice.getBluetoothDevice());
-        Log.d(TAG, "=================== Connect to device : " + bleDevice.getName() + " UUID : " + uuid);
+        ProvisioningLog.d(TAG, "=================== Connect to device : " + bleDevice.getName() + " UUID : " + uuid);
 
         if (hasLocationAndBtPermissions()) {
 
@@ -693,7 +695,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
             provisionManager.getEspDevice().connectBLEDevice(bleDevice.getBluetoothDevice(), uuid);
             handler.postDelayed(disconnectDeviceTask, DEVICE_CONNECT_TIMEOUT);
         } else {
-            Log.e(TAG, "Not able to connect device as permission is not granted.");
+            ProvisioningLog.e(TAG, "Not able to connect device as permission is not granted.");
             Toast.makeText(BLEProvisionLanding.this, "Please give permission to connect device", Toast.LENGTH_LONG).show();
         }
     }
@@ -703,7 +705,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
         @Override
         public void run() {
 
-            Log.e(TAG, "Disconnect device");
+            ProvisioningLog.e(TAG, "Disconnect device");
 
             // TODO Disconnect device
             progressBar.setVisibility(View.GONE);
@@ -804,11 +806,11 @@ public class BLEProvisionLanding extends AppCompatActivity {
     }
 
     private void showSkipWifiProvisioningDialog() {
-        Log.d(TAG, "showSkipWifiProvisioningDialog() called on thread: " + Thread.currentThread().getName());
+        ProvisioningLog.d(TAG, "showSkipWifiProvisioningDialog() called on thread: " + Thread.currentThread().getName());
         
         /* Ensure we're on UI thread */
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Log.w(TAG, "Not on UI thread, posting to main thread");
+            ProvisioningLog.w(TAG, "Not on UI thread, posting to main thread");
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -865,7 +867,7 @@ public class BLEProvisionLanding extends AppCompatActivity {
                     pop = getIntent().getStringExtra(AppConstants.KEY_PROOF_OF_POSSESSION);
                 }
 
-                Log.d(TAG, "Starting BLE local control flow - deviceName: " + deviceName + ", pop: " + (TextUtils.isEmpty(pop) ? "empty" : "set"));
+                ProvisioningLog.d(TAG, "Starting BLE local control flow - deviceName: " + deviceName + ", pop: " + (TextUtils.isEmpty(pop) ? "empty" : "set"));
 
                 /* Go to ProvisionActivity with BLE local control flag */
                 Intent provisionIntent = new Intent(getApplicationContext(), ProvisionActivity.class);
@@ -891,12 +893,12 @@ public class BLEProvisionLanding extends AppCompatActivity {
             if (!isFinishing()) {
                 AlertDialog dialog = builder.create();
                 dialog.show();
-                Log.d(TAG, "Skip Wi-Fi Provisioning dialog shown");
+                ProvisioningLog.d(TAG, "Skip Wi-Fi Provisioning dialog shown");
             } else {
-                Log.w(TAG, "Activity is finishing, cannot show dialog");
+                ProvisioningLog.w(TAG, "Activity is finishing, cannot show dialog");
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error showing Skip Wi-Fi Provisioning dialog: " + e.getMessage(), e);
+            ProvisioningLog.e(TAG, "Error showing Skip Wi-Fi Provisioning dialog: " + e.getMessage(), e);
             e.printStackTrace();
             ArrayList<String> deviceCaps = provisionManager.getEspDevice().getDeviceCapabilities();
             routeToWifiOrThread(deviceCaps);

@@ -19,7 +19,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.TextUtils;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -159,25 +159,25 @@ public class ProvisionActivity extends AppCompatActivity {
         isReuseCurrentWifi = intent.getBooleanExtra(AppConstants.KEY_REUSE_CURRENT_WIFI, false);
         bleLocalCtrlDeviceName = intent.getStringExtra(AppConstants.KEY_DEVICE_NAME);
         bleLocalCtrlPop = intent.getStringExtra(AppConstants.KEY_PROOF_OF_POSSESSION);
-        Log.d(TAG, "BLE Local Ctrl Flow: " + isBleLocalCtrlFlow);
-        Log.d(TAG, "Reuse current Wi-Fi flow: " + isReuseCurrentWifi);
-        Log.d(TAG, "From Intent - deviceName: " + bleLocalCtrlDeviceName + ", pop: " + bleLocalCtrlPop);
+        ProvisioningLog.d(TAG, "BLE Local Ctrl Flow: " + isBleLocalCtrlFlow);
+        ProvisioningLog.d(TAG, "Reuse current Wi-Fi flow: " + isReuseCurrentWifi);
+        ProvisioningLog.d(TAG, "From Intent - deviceName: " + bleLocalCtrlDeviceName + ", pop=<hidden>");
 
         provisionManager = ESPProvisionManager.getInstance(getApplicationContext());
 
         /* Fallback: get PoP from ESPDevice if not in intent */
         if (TextUtils.isEmpty(bleLocalCtrlPop) && provisionManager.getEspDevice() != null) {
             bleLocalCtrlPop = provisionManager.getEspDevice().getProofOfPossession();
-            Log.d(TAG, "Fallback - Got PoP from ESPDevice: " + bleLocalCtrlPop);
+            ProvisioningLog.d(TAG, "Fallback - Got PoP from ESPDevice: <hidden>");
         }
-        Log.d(TAG, "Final values - deviceName: " + bleLocalCtrlDeviceName + ", pop: " + bleLocalCtrlPop);
+        ProvisioningLog.d(TAG, "Final values - deviceName: " + bleLocalCtrlDeviceName + ", pop=<hidden>");
 
         handler = new Handler();
         apiManager = ApiManager.getInstance(getApplicationContext());
         initViews();
         checkDeviceCapabilities();
 
-        Log.d(TAG, "Selected AP - " + ssidValue);
+        ProvisioningLog.d(TAG, "Selected AP - " + ssidValue);
         EventBus.getDefault().register(this);
         showLoading();
         doStep1();
@@ -204,7 +204,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(UpdateEvent event) {
-        Log.d(TAG, "ON UPDATE EVENT RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "ON UPDATE EVENT RECEIVED : " + event.getEventType());
 
         switch (event.getEventType()) {
 
@@ -230,7 +230,7 @@ public class ProvisionActivity extends AppCompatActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(DeviceConnectionEvent event) {
 
-        Log.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
 
         switch (event.getEventType()) {
 
@@ -372,7 +372,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
             } catch (JSONException e) {
                 e.printStackTrace();
-                Log.e(TAG, "Version Info JSON not available.");
+                ProvisioningLog.e(TAG, "Version Info JSON not available.");
                 finish();
             }
         }
@@ -454,8 +454,8 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void doStep5() {
 
-        Log.d(TAG, "================= Do step 5 =================");
-        Log.d(TAG, "Received node id : " + receivedNodeId);
+        ProvisioningLog.d(TAG, "================= Do step 5 =================");
+        ProvisioningLog.d(TAG, "Received node id : " + receivedNodeId);
         tick4.setImageResource(R.drawable.ic_checkbox_on);
         tick4.setVisibility(View.VISIBLE);
         progress4.setVisibility(View.GONE);
@@ -472,20 +472,20 @@ public class ProvisionActivity extends AppCompatActivity {
 
             @Override
             public void onSuccess(Bundle data) {
-                Log.e(TAG, "Get node details - success");
+                ProvisioningLog.e(TAG, "Get node details - success");
                 handler.postDelayed(getNodeStatusTask, 1000);
             }
 
             @Override
             public void onResponseFailure(Exception exception) {
-                Log.e(TAG, "Get node details - failure");
+                ProvisioningLog.e(TAG, "Get node details - failure");
                 // Even if we fail to get details, proceed with status check
                 handler.postDelayed(getNodeStatusTask, 1000);
             }
 
             @Override
             public void onNetworkFailure(Exception exception) {
-                Log.e(TAG, "Get node details - failure");
+                ProvisioningLog.e(TAG, "Get node details - failure");
                 // Even if we fail to get details, proceed with status check
                 handler.postDelayed(getNodeStatusTask, 1000);
             }
@@ -500,7 +500,7 @@ public class ProvisionActivity extends AppCompatActivity {
      * 用户映射已完成后，直接按“Wi-Fi 已就绪”推进原有后续添加节点流程。
      */
     private void continueWithExistingWifiAfterAssociation() {
-        Log.i(TAG, "Reuse current Wi-Fi: skip set/apply config and continue device addition");
+        ProvisioningLog.i(TAG, "Reuse current Wi-Fi: skip set/apply config and continue device addition");
         isProvisioningCompleted = true;
         runOnUiThread(new Runnable() {
             @Override
@@ -513,7 +513,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void provision() {
 
-        Log.d(TAG, "+++++++++++++++++++++++++++++ PROVISION +++++++++++++++++++++++++++++");
+        ProvisioningLog.d(TAG, "+++++++++++++++++++++++++++++ PROVISION +++++++++++++++++++++++++++++");
 
         if (!TextUtils.isEmpty(dataset)) {
             provisionManager.getEspDevice().provision(dataset, new ProvisionListener() {
@@ -531,7 +531,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 @Override
                 public void wifiConfigSent() {
                     // Nothing to do here
-                    Log.d(TAG, "Thread Config sent");
+                    ProvisioningLog.d(TAG, "Thread Config sent");
                 }
 
                 @Override
@@ -553,7 +553,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
                 @Override
                 public void wifiConfigApplied() {
-                    Log.d(TAG, "WiFi Config Applied");
+                    ProvisioningLog.d(TAG, "WiFi Config Applied");
                     runOnUiThread(() -> {
                         doStep2();
                         // Start WiFi connection confirmation timeout
@@ -569,7 +569,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         @Override
                         public void run() {
 
-                            Log.e(TAG, "WiFi Config Apply failed");
+                            ProvisioningLog.e(TAG, "WiFi Config Apply failed");
                             tick1.setImageResource(R.drawable.ic_error);
                             tick1.setVisibility(View.VISIBLE);
                             progress1.setVisibility(View.GONE);
@@ -619,7 +619,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 @Override
                 public void onProvisioningFailed(Exception e) {
                     runOnUiThread(() -> {
-                        Log.e(TAG, "Device Provisioning Failed");
+                        ProvisioningLog.e(TAG, "Device Provisioning Failed");
                         wifiConnectHandler.removeCallbacks(wifiConnectTimeoutTask);
                         doStep3(false);
                     });
@@ -642,7 +642,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 @Override
                 public void wifiConfigSent() {
                     // Nothing to do here
-                    Log.d(TAG, "WiFi Config sent");
+                    ProvisioningLog.d(TAG, "WiFi Config sent");
                 }
 
                 @Override
@@ -666,7 +666,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 @Override
                 public void wifiConfigApplied() {
 
-                    Log.d(TAG, "WiFi Config Applied");
+                    ProvisioningLog.d(TAG, "WiFi Config Applied");
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -790,7 +790,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     JSONObject jsonObject = new JSONObject(jsonResponse);
                     String challenge = jsonObject.optString(AppConstants.KEY_CHALLENGE);
                     String requestId = jsonObject.optString(AppConstants.KEY_REQUEST_ID);
-                    Log.d(TAG, "Got challenge: " + challenge + ", request_id: " + requestId);
+                    ProvisioningLog.d(TAG, "Got challenge: " + challenge + ", request_id: " + requestId);
 
                     /* Send challenge to device using proto */
                     byte[] challengeBytes = challenge.getBytes(StandardCharsets.UTF_8);
@@ -892,7 +892,7 @@ public class ProvisionActivity extends AppCompatActivity {
     }
 
     private void verifyNodeAssociationOnNetwork() {
-        Log.d(TAG, "Verifying node association on local network");
+        ProvisioningLog.d(TAG, "Verifying node association on local network");
 
         apiManager.initiateMapping(new ApiResponseListener() {
             @Override
@@ -902,7 +902,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     JSONObject jsonObject = new JSONObject(jsonResponse);
                     String challenge = jsonObject.optString(AppConstants.KEY_CHALLENGE);
                     String requestId = jsonObject.optString(AppConstants.KEY_REQUEST_ID);
-                    Log.d(TAG, "Got challenge: " + challenge + ", request_id: " + requestId);
+                    ProvisioningLog.d(TAG, "Got challenge: " + challenge + ", request_id: " + requestId);
 
                     /* Send challenge to device using proto via local network */
                     byte[] challengeBytes = challenge.getBytes(StandardCharsets.UTF_8);
@@ -1010,7 +1010,7 @@ public class ProvisionActivity extends AppCompatActivity {
     }
 
     private void sendDisableChallengeResponse() {
-        Log.d(TAG, "Sending disable challenge-response command");
+        ProvisioningLog.d(TAG, "Sending disable challenge-response command");
 
         EspRmakerChalResp.CmdDisableChalRespPayload disablePayload = EspRmakerChalResp.CmdDisableChalRespPayload.newBuilder().build();
 
@@ -1031,7 +1031,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     try {
                         RMakerChRespPayload response = RMakerChRespPayload.parseFrom(returnData);
                         if (response.getStatus() == RMakerChRespStatus.Success) {
-                            Log.d(TAG, "Challenge-response disabled successfully");
+                            ProvisioningLog.d(TAG, "Challenge-response disabled successfully");
                             runOnUiThread(() -> {
                                 // Mark step 4 as complete (node association confirmed)
                                 tick4.setImageResource(R.drawable.ic_checkbox_on);
@@ -1042,7 +1042,7 @@ public class ProvisionActivity extends AppCompatActivity {
                                 doStep5();
                             });
                         } else {
-                            Log.e(TAG, "Failed to disable challenge-response, status: " + response.getStatus());
+                            ProvisioningLog.e(TAG, "Failed to disable challenge-response, status: " + response.getStatus());
                             // Still proceed to step 5 even if disable fails
                             runOnUiThread(() -> {
                                 tick4.setImageResource(R.drawable.ic_checkbox_on);
@@ -1052,7 +1052,7 @@ public class ProvisionActivity extends AppCompatActivity {
                             });
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "Error parsing disable response", e);
+                        ProvisioningLog.e(TAG, "Error parsing disable response", e);
                         // Still proceed to step 5 even if parsing fails
                         runOnUiThread(() -> {
                             tick4.setImageResource(R.drawable.ic_checkbox_on);
@@ -1062,7 +1062,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         });
                     }
                 } else {
-                    Log.e(TAG, "Disable challenge-response returned null");
+                    ProvisioningLog.e(TAG, "Disable challenge-response returned null");
                     // Still proceed to step 5
                     runOnUiThread(() -> {
                         tick4.setImageResource(R.drawable.ic_checkbox_on);
@@ -1075,7 +1075,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(Exception e) {
-                Log.e(TAG, "Failed to send disable challenge-response command", e);
+                ProvisioningLog.e(TAG, "Failed to send disable challenge-response command", e);
                 // Still proceed to step 5 even if disable command fails
                 runOnUiThread(() -> {
                     tick4.setImageResource(R.drawable.ic_checkbox_on);
@@ -1104,10 +1104,10 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void associateDevice() {
 
-        Log.d(TAG, "Associate device");
+        ProvisioningLog.d(TAG, "Associate device");
 
         if (isChallengeResponseFlow) {
-            Log.d(TAG, "Challenge response was already done, skipping cloud user association");
+            ProvisioningLog.d(TAG, "Challenge response was already done, skipping cloud user association");
             doStep4();
             return;
         }
@@ -1130,14 +1130,14 @@ public class ProvisionActivity extends AppCompatActivity {
             @Override
             public void onSuccess(byte[] returnData) {
 
-                Log.d(TAG, "Successfully sent user id and secrete key");
+                ProvisioningLog.d(TAG, "Successfully sent user id and secrete key");
                 processDetails(returnData, secretKey);
             }
 
             @Override
             public void onFailure(Exception e) {
 
-                Log.e(TAG, "Send config data : Error : " + e.getMessage());
+                ProvisioningLog.e(TAG, "Send config data : Error : " + e.getMessage());
 
                 runOnUiThread(new Runnable() {
 
@@ -1197,7 +1197,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
     private void addDeviceToCloud(final ApiResponseListener responseListener) {
 
-        Log.d(TAG, "Add device to cloud, count : " + addDeviceReqCount);
+        ProvisioningLog.d(TAG, "Add device to cloud, count : " + addDeviceReqCount);
         // For on-network challenge-response flow, secretKey is not needed
         String keyToUse = isOnNetworkFlow ? null : secretKey;
         apiManager.addNode(receivedNodeId, keyToUse, new ApiResponseListener() {
@@ -1352,10 +1352,10 @@ public class ProvisionActivity extends AppCompatActivity {
 
                                 if (isTimeZoneServiceAvailable) {
 
-                                    Log.e(TAG, "Time zone service is available");
+                                    ProvisioningLog.e(TAG, "Time zone service is available");
                                     TimeZone tz = TimeZone.getDefault();
                                     String timeZoneId = tz.getID();
-                                    Log.e(TAG, "Time zone id : " + timeZoneId);
+                                    ProvisioningLog.e(TAG, "Time zone id : " + timeZoneId);
 
                                     JsonObject body = new JsonObject();
                                     JsonObject jsonParam = new JsonObject();
@@ -1363,7 +1363,7 @@ public class ProvisionActivity extends AppCompatActivity {
                                     if (!TextUtils.isEmpty(timestampParamName)) {
                                         long timestampSec = System.currentTimeMillis() / 1000L;
                                         jsonParam.addProperty(timestampParamName, timestampSec);
-                                        Log.d(TAG, "Timestamp (s) : " + timestampSec);
+                                        ProvisioningLog.d(TAG, "Timestamp (s) : " + timestampSec);
                                     }
                                     body.add(AppConstants.KEY_TIME, jsonParam);
                                     apiManager.updateParamValue(espNode.getNodeId(), body, new ApiResponseListener() {
@@ -1379,7 +1379,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
                                         @Override
                                         public void onResponseFailure(Exception exception) {
-                                            Log.e(TAG, "Failed to send time zone value");
+                                            ProvisioningLog.e(TAG, "Failed to send time zone value");
                                             handler.removeCallbacks(getNodeStatusTask);
                                             tick5.setImageResource(R.drawable.ic_alert);
                                             tick5.setVisibility(View.VISIBLE);
@@ -1388,7 +1388,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
                                         @Override
                                         public void onNetworkFailure(Exception exception) {
-                                            Log.e(TAG, "Failed to send time zone value");
+                                            ProvisioningLog.e(TAG, "Failed to send time zone value");
                                             handler.removeCallbacks(getNodeStatusTask);
                                             tick5.setImageResource(R.drawable.ic_alert);
                                             tick5.setVisibility(View.VISIBLE);
@@ -1396,7 +1396,7 @@ public class ProvisionActivity extends AppCompatActivity {
                                         }
                                     });
                                 } else {
-                                    Log.e(TAG, "Time zone service is not available");
+                                    ProvisioningLog.e(TAG, "Time zone service is not available");
                                     tick5.setImageResource(R.drawable.ic_checkbox_on);
                                     tick5.setVisibility(View.VISIBLE);
                                     progress5.setVisibility(View.GONE);
@@ -1434,7 +1434,7 @@ public class ProvisionActivity extends AppCompatActivity {
             if (isFinishing()) {
                 return;
             }
-            Log.d(TAG, "Stop node status polling. Timeout");
+            ProvisioningLog.d(TAG, "Stop node status polling. Timeout");
             handler.removeCallbacks(getNodeStatusTask);
             tick5.setImageResource(R.drawable.ic_alert);
             tick5.setVisibility(View.VISIBLE);
@@ -1445,7 +1445,7 @@ public class ProvisionActivity extends AppCompatActivity {
     private Runnable wifiConnectTimeoutTask = new Runnable() {
         @Override
         public void run() {
-            Log.e(TAG, "WiFi connection confirmation timed out");
+            ProvisioningLog.e(TAG, "WiFi connection confirmation timed out");
             runOnUiThread(() -> {
                 tick2.setImageResource(R.drawable.ic_error);
                 tick2.setVisibility(View.VISIBLE);
@@ -1511,7 +1511,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Log.d(TAG, "Success received for sending WiFi reset command");
+                            ProvisioningLog.d(TAG, "Success received for sending WiFi reset command");
                             showReenterPasswordAlert();
                         }
                     });
@@ -1523,7 +1523,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         @Override
                         public void run() {
                             // Log error but don't block UI - reset is best effort
-                            Log.e(TAG, "Failed to send WiFi reset command", e);
+                            ProvisioningLog.e(TAG, "Failed to send WiFi reset command", e);
                             showResetPasswordFailedAlert("Failed to send WiFi reset command: " + e.getMessage());
                         }
                     });
@@ -1540,7 +1540,7 @@ public class ProvisionActivity extends AppCompatActivity {
      * 3. Updates node metadata with ble_local_ctrl object
      */
     private void startBleLocalCtrlFlow() {
-        Log.d(TAG, "Starting BLE local control flow for node: " + receivedNodeId);
+        ProvisioningLog.d(TAG, "Starting BLE local control flow for node: " + receivedNodeId);
         tick1.setImageResource(R.drawable.ic_checkbox_on);
         tick1.setVisibility(View.VISIBLE);
         progress1.setVisibility(View.GONE);
@@ -1554,7 +1554,7 @@ public class ProvisionActivity extends AppCompatActivity {
      * Device returns already-signed data, no need to use ch_resp
      */
     private void getConfigAndReportToProxy() {
-        Log.d(TAG, "Getting config with timestamp...");
+        ProvisioningLog.d(TAG, "Getting config with timestamp...");
         tick2.setVisibility(View.GONE);
         progress2.setVisibility(View.VISIBLE);
         tvProvStep2.setText(R.string.getting_node_config);
@@ -1568,12 +1568,12 @@ public class ProvisionActivity extends AppCompatActivity {
             public void onSuccess(JSONObject deviceResponse) {
                 /* Device returns: {"node_payload": {"data": {...}, "timestamp": ...}, "signature": "..."} */
                 try {
-                    Log.d(TAG, "Device config response: " + deviceResponse.toString());
+                    ProvisioningLog.d(TAG, "Device config response: " + deviceResponse.toString());
 
                     /* Extract signature from TOP level (not inside node_payload) */
                     String signature = deviceResponse.optString("signature", "");
                     if (TextUtils.isEmpty(signature)) {
-                        Log.e(TAG, "No signature in device response");
+                        ProvisioningLog.e(TAG, "No signature in device response");
                         runOnUiThread(() -> getParamsAndReportToProxy(false));
                         return;
                     }
@@ -1581,7 +1581,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     /* Extract node_payload object - this becomes the node_payload string for proxy */
                     JSONObject nodePayloadObj = deviceResponse.optJSONObject("node_payload");
                     if (nodePayloadObj == null) {
-                        Log.e(TAG, "No node_payload in device response");
+                        ProvisioningLog.e(TAG, "No node_payload in device response");
                         runOnUiThread(() -> getParamsAndReportToProxy(false));
                         return;
                     }
@@ -1591,7 +1591,7 @@ public class ProvisionActivity extends AppCompatActivity {
                      * signed the original JSON without escaped slashes, so we must unescape them */
                     String nodePayloadStr = nodePayloadObj.toString().replace("\\/", "/");
 
-                    Log.d(TAG, "Reporting config to proxy - payload length: " + nodePayloadStr.length() + ", signature length: " + signature.length());
+                    ProvisioningLog.d(TAG, "Reporting config to proxy - payload length: " + nodePayloadStr.length() + ", signature length: " + signature.length());
 
                     /* Report directly to proxy (device already signed it) */
                     reportToProxy(nodePayloadStr, signature, true, new ProxyReportCallback() {
@@ -1603,13 +1603,13 @@ public class ProvisionActivity extends AppCompatActivity {
 
                         @Override
                         public void onFailure(Exception e) {
-                            Log.e(TAG, "Failed to report config to proxy: " + e.getMessage());
+                            ProvisioningLog.e(TAG, "Failed to report config to proxy: " + e.getMessage());
                             /* Continue but show failure */
                             runOnUiThread(() -> getParamsAndReportToProxy(false));
                         }
                     });
                 } catch (Exception e) {
-                    Log.e(TAG, "Error processing config: " + e.getMessage());
+                    ProvisioningLog.e(TAG, "Error processing config: " + e.getMessage());
                     e.printStackTrace();
                     /* Continue but show failure */
                     runOnUiThread(() -> getParamsAndReportToProxy(false));
@@ -1618,7 +1618,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(Exception e) {
-                Log.e(TAG, "Failed to get config: " + e.getMessage());
+                ProvisioningLog.e(TAG, "Failed to get config: " + e.getMessage());
                 e.printStackTrace();
                 /* Continue but show failure */
                 runOnUiThread(() -> getParamsAndReportToProxy(false));
@@ -1633,7 +1633,7 @@ public class ProvisionActivity extends AppCompatActivity {
      * @param configSuccess true if previous config step succeeded, false otherwise
      */
     private void getParamsAndReportToProxy(boolean configSuccess) {
-        Log.d(TAG, "Getting params with timestamp... (configSuccess: " + configSuccess + ")");
+        ProvisioningLog.d(TAG, "Getting params with timestamp... (configSuccess: " + configSuccess + ")");
         /* Show success or failure for previous config step */
         tick2.setImageResource(configSuccess ? R.drawable.ic_checkbox_on : R.drawable.ic_alert);
         tick2.setVisibility(View.VISIBLE);
@@ -1651,12 +1651,12 @@ public class ProvisionActivity extends AppCompatActivity {
             public void onSuccess(JSONObject deviceResponse) {
                 /* Device returns: {"node_payload": {"data": {...}, "timestamp": ...}, "signature": "..."} */
                 try {
-                    Log.d(TAG, "Device params response: " + deviceResponse.toString());
+                    ProvisioningLog.d(TAG, "Device params response: " + deviceResponse.toString());
 
                     /* Extract signature from TOP level (not inside node_payload) */
                     String signature = deviceResponse.optString("signature", "");
                     if (TextUtils.isEmpty(signature)) {
-                        Log.e(TAG, "No signature in device response");
+                        ProvisioningLog.e(TAG, "No signature in device response");
                         runOnUiThread(() -> updateNodeMetadataWithBleLocalCtrl(false));
                         return;
                     }
@@ -1664,7 +1664,7 @@ public class ProvisionActivity extends AppCompatActivity {
                     /* Extract node_payload object - this becomes the node_payload string for proxy */
                     JSONObject nodePayloadObj = deviceResponse.optJSONObject("node_payload");
                     if (nodePayloadObj == null) {
-                        Log.e(TAG, "No node_payload in device response");
+                        ProvisioningLog.e(TAG, "No node_payload in device response");
                         runOnUiThread(() -> updateNodeMetadataWithBleLocalCtrl(false));
                         return;
                     }
@@ -1674,7 +1674,7 @@ public class ProvisionActivity extends AppCompatActivity {
                      * signed the original JSON without escaped slashes, so we must unescape them */
                     String nodePayloadStr = nodePayloadObj.toString().replace("\\/", "/");
 
-                    Log.d(TAG, "Reporting params to proxy - payload length: " + nodePayloadStr.length() + ", signature length: " + signature.length());
+                    ProvisioningLog.d(TAG, "Reporting params to proxy - payload length: " + nodePayloadStr.length() + ", signature length: " + signature.length());
 
                     /* Report directly to proxy (device already signed it) */
                     reportToProxy(nodePayloadStr, signature, false, new ProxyReportCallback() {
@@ -1686,13 +1686,13 @@ public class ProvisionActivity extends AppCompatActivity {
 
                         @Override
                         public void onFailure(Exception e) {
-                            Log.e(TAG, "Failed to report params to proxy: " + e.getMessage());
+                            ProvisioningLog.e(TAG, "Failed to report params to proxy: " + e.getMessage());
                             /* Update metadata anyway but show failure */
                             runOnUiThread(() -> updateNodeMetadataWithBleLocalCtrl(false));
                         }
                     });
                 } catch (Exception e) {
-                    Log.e(TAG, "Error processing params: " + e.getMessage());
+                    ProvisioningLog.e(TAG, "Error processing params: " + e.getMessage());
                     e.printStackTrace();
                     /* Update metadata anyway but show failure */
                     runOnUiThread(() -> updateNodeMetadataWithBleLocalCtrl(false));
@@ -1701,7 +1701,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(Exception e) {
-                Log.e(TAG, "Failed to get params: " + e.getMessage());
+                ProvisioningLog.e(TAG, "Failed to get params: " + e.getMessage());
                 e.printStackTrace();
                 /* Update metadata anyway but show failure */
                 runOnUiThread(() -> updateNodeMetadataWithBleLocalCtrl(false));
@@ -1715,9 +1715,9 @@ public class ProvisionActivity extends AppCompatActivity {
      * @param paramsSuccess true if previous params step succeeded, false otherwise
      */
     private void updateNodeMetadataWithBleLocalCtrl(boolean paramsSuccess) {
-        Log.d(TAG, "Updating node metadata with BLE local control info... (paramsSuccess: " + paramsSuccess + ")");
-        Log.d(TAG, "  bleLocalCtrlDeviceName = " + bleLocalCtrlDeviceName);
-        Log.d(TAG, "  bleLocalCtrlPop = " + bleLocalCtrlPop);
+        ProvisioningLog.d(TAG, "Updating node metadata with BLE local control info... (paramsSuccess: " + paramsSuccess + ")");
+        ProvisioningLog.d(TAG, "  bleLocalCtrlDeviceName = " + bleLocalCtrlDeviceName);
+        ProvisioningLog.d(TAG, "  bleLocalCtrlPop = " + bleLocalCtrlPop);
         /* Show success or failure for previous params step */
         tick3.setImageResource(paramsSuccess ? R.drawable.ic_checkbox_on : R.drawable.ic_alert);
         tick3.setVisibility(View.VISIBLE);
@@ -1735,13 +1735,13 @@ public class ProvisionActivity extends AppCompatActivity {
             JsonObject body = new JsonObject();
             body.add(AppConstants.KEY_METADATA, metadata);
 
-            Log.d(TAG, "Metadata body being sent: " + body.toString());
+            ProvisioningLog.d(TAG, "Metadata body being sent: " + body.toString());
 
             apiManager.updateNodeMetadata(receivedNodeId, body, new ApiResponseListener() {
                 @Override
                 public void onSuccess(Bundle data) {
                     runOnUiThread(() -> {
-                        Log.d(TAG, "Node metadata updated successfully");
+                        ProvisioningLog.d(TAG, "Node metadata updated successfully");
                         tick4.setImageResource(R.drawable.ic_checkbox_on);
                         tick4.setVisibility(View.VISIBLE);
                         progress4.setVisibility(View.GONE);
@@ -1757,7 +1757,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 @Override
                 public void onResponseFailure(Exception e) {
                     runOnUiThread(() -> {
-                        Log.e(TAG, "Failed to update node metadata: " + e.getMessage());
+                        ProvisioningLog.e(TAG, "Failed to update node metadata: " + e.getMessage());
                         tick4.setImageResource(R.drawable.ic_alert);
                         tick4.setVisibility(View.VISIBLE);
                         progress4.setVisibility(View.GONE);
@@ -1774,7 +1774,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 @Override
                 public void onNetworkFailure(Exception e) {
                     runOnUiThread(() -> {
-                        Log.e(TAG, "Network failure updating node metadata: " + e.getMessage());
+                        ProvisioningLog.e(TAG, "Network failure updating node metadata: " + e.getMessage());
                         tick4.setImageResource(R.drawable.ic_alert);
                         tick4.setVisibility(View.VISIBLE);
                         progress4.setVisibility(View.GONE);
@@ -1789,7 +1789,7 @@ public class ProvisionActivity extends AppCompatActivity {
                 }
             });
         } catch (Exception e) {
-            Log.e(TAG, "Error updating node metadata: " + e.getMessage());
+            ProvisioningLog.e(TAG, "Error updating node metadata: " + e.getMessage());
             e.printStackTrace();
             runOnUiThread(() -> {
                 tick4.setImageResource(R.drawable.ic_alert);
@@ -1833,7 +1833,7 @@ public class ProvisionActivity extends AppCompatActivity {
     private void getRawDataWithChunking(int dataType, Long timestamp, RawDataCallback callback) {
         String endpointName = (dataType == 0) ? AppConstants.HANDLER_GET_PARAMS : AppConstants.HANDLER_GET_CONFIG;
         String dataName = (dataType == 0) ? "params" : "config";
-        Log.d(TAG, "Getting " + dataName + " with chunked transfer...");
+        ProvisioningLog.d(TAG, "Getting " + dataName + " with chunked transfer...");
 
         getRawDataChunk(endpointName, dataType, 0, timestamp, new ArrayList<Byte>(), null, callback);
     }
@@ -1894,7 +1894,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         /* Set total length from first response */
                         if (currentTotalLen[0] == null) {
                             currentTotalLen[0] = respTotalLen;
-                            Log.d(TAG, "Total length: " + currentTotalLen[0] + " bytes");
+                            ProvisioningLog.d(TAG, "Total length: " + currentTotalLen[0] + " bytes");
                         }
 
                         /* Append payload to buffer */
@@ -1903,7 +1903,7 @@ public class ProvisionActivity extends AppCompatActivity {
                         }
                         currentOffset[0] += payloadBytes.length;
 
-                        Log.d(TAG, "Received fragment: offset=" + respOffset + ", len=" + payloadBytes.length + ", progress=" + currentOffset[0] + "/" + currentTotalLen[0]);
+                        ProvisioningLog.d(TAG, "Received fragment: offset=" + respOffset + ", len=" + payloadBytes.length + ", progress=" + currentOffset[0] + "/" + currentTotalLen[0]);
 
                         /* Check if we have all data */
                         if (currentOffset[0] >= currentTotalLen[0]) {
@@ -1921,7 +1921,7 @@ public class ProvisionActivity extends AppCompatActivity {
                                 JSONObject dataJson = new JSONObject(dataStr);
                                 callback.onSuccess(dataJson);
                             } catch (JSONException e) {
-                                Log.e(TAG, "Failed to parse JSON: " + e.getMessage());
+                                ProvisioningLog.e(TAG, "Failed to parse JSON: " + e.getMessage());
                                 callback.onFailure(e);
                             }
                         } else {
@@ -1929,7 +1929,7 @@ public class ProvisionActivity extends AppCompatActivity {
                             getRawDataChunk(endpointName, dataType, currentOffset[0], null, dataBuffer, currentTotalLen[0], callback);
                         }
                     } catch (InvalidProtocolBufferException e) {
-                        Log.e(TAG, "Failed to parse protobuf response: " + e.getMessage());
+                        ProvisioningLog.e(TAG, "Failed to parse protobuf response: " + e.getMessage());
                         e.printStackTrace();
                         callback.onFailure(e);
                     }
@@ -1940,7 +1940,7 @@ public class ProvisionActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(Exception e) {
-                Log.e(TAG, "Failed to get data chunk: " + e.getMessage());
+                ProvisioningLog.e(TAG, "Failed to get data chunk: " + e.getMessage());
                 e.printStackTrace();
                 callback.onFailure(e);
             }
@@ -1956,32 +1956,32 @@ public class ProvisionActivity extends AppCompatActivity {
      * @param callback       Callback for success/failure
      */
     private void reportToProxy(String nodePayloadStr, String signature, boolean isConfig, ProxyReportCallback callback) {
-        Log.d(TAG, "Reporting to proxy - isConfig: " + isConfig);
+        ProvisioningLog.d(TAG, "Reporting to proxy - isConfig: " + isConfig);
 
         /* Create payload for proxy API */
         JsonObject proxyPayload = new JsonObject();
         proxyPayload.addProperty("node_payload", nodePayloadStr);
         proxyPayload.addProperty("signature", signature);
 
-        Log.d(TAG, "Proxy payload: " + proxyPayload.toString());
+        ProvisioningLog.d(TAG, "Proxy payload: " + proxyPayload.toString());
 
         if (isConfig) {
             apiManager.reportProxyConfig(receivedNodeId, proxyPayload, new ApiResponseListener() {
                 @Override
                 public void onSuccess(Bundle data) {
-                    Log.d(TAG, "Config reported to proxy successfully");
+                    ProvisioningLog.d(TAG, "Config reported to proxy successfully");
                     callback.onSuccess();
                 }
 
                 @Override
                 public void onResponseFailure(Exception e) {
-                    Log.e(TAG, "Failed to report config to proxy: " + e.getMessage());
+                    ProvisioningLog.e(TAG, "Failed to report config to proxy: " + e.getMessage());
                     callback.onFailure(e);
                 }
 
                 @Override
                 public void onNetworkFailure(Exception e) {
-                    Log.e(TAG, "Network failure reporting config to proxy: " + e.getMessage());
+                    ProvisioningLog.e(TAG, "Network failure reporting config to proxy: " + e.getMessage());
                     callback.onFailure(e);
                 }
             });
@@ -1989,19 +1989,19 @@ public class ProvisionActivity extends AppCompatActivity {
             apiManager.reportProxyInitParams(receivedNodeId, proxyPayload, new ApiResponseListener() {
                 @Override
                 public void onSuccess(Bundle data) {
-                    Log.d(TAG, "Params reported to proxy successfully");
+                    ProvisioningLog.d(TAG, "Params reported to proxy successfully");
                     callback.onSuccess();
                 }
 
                 @Override
                 public void onResponseFailure(Exception e) {
-                    Log.e(TAG, "Failed to report params to proxy: " + e.getMessage());
+                    ProvisioningLog.e(TAG, "Failed to report params to proxy: " + e.getMessage());
                     callback.onFailure(e);
                 }
 
                 @Override
                 public void onNetworkFailure(Exception e) {
-                    Log.e(TAG, "Network failure reporting params to proxy: " + e.getMessage());
+                    ProvisioningLog.e(TAG, "Network failure reporting params to proxy: " + e.getMessage());
                     callback.onFailure(e);
                 }
             });

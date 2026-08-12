@@ -60,6 +60,7 @@ import com.espressif.ui.models.Service;
 import com.espressif.ui.models.UpdateEvent;
 import com.espressif.utils.NodeUtils;
 import com.espressif.utils.ParamUtils;
+import com.espressif.utils.ProvisioningLog;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.messaging.FirebaseMessaging;
@@ -262,7 +263,8 @@ public class EspApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "ESP Application is created");
+        ProvisioningLog.resetForProcess();
+        ProvisioningLog.i(TAG, "ESP Application is created");
 
         initializeTheme();
 

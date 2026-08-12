@@ -32,7 +32,7 @@ import android.os.Handler;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -134,7 +134,7 @@ public class WiFiScanActivity extends AppCompatActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(DeviceConnectionEvent event) {
 
-        Log.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
 
         switch (event.getEventType()) {
 
@@ -260,7 +260,7 @@ public class WiFiScanActivity extends AppCompatActivity {
                                            @NonNull int[] grantResults) {
 
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        Log.e(TAG, "onRequestPermissionsResult , requestCode : " + requestCode);
+        ProvisioningLog.e(TAG, "onRequestPermissionsResult , requestCode : " + requestCode);
 
         if (requestCode == REQUEST_ACCESS_FINE_LOCATION) {
             startScan();
@@ -269,6 +269,7 @@ public class WiFiScanActivity extends AppCompatActivity {
 
     private void startScan() {
 
+        ProvisioningLog.i(TAG, "Wi-Fi scan started, source=" + BuildConfig.WIFI_SCAN_SRC);
         updateProgressAndScanBtn(true);
         if (BuildConfig.WIFI_SCAN_SRC.equals(AppConstants.WIFI_SCAN_FROM_DEVICE)) {
             showLoading();
@@ -277,7 +278,7 @@ public class WiFiScanActivity extends AppCompatActivity {
             displayWifiList();
             boolean success = wifiManager.startScan();
             if (!success) {
-                Log.e(TAG, "Failed to start Wi-Fi Scanning using phone");
+                ProvisioningLog.e(TAG, "Failed to start Wi-Fi Scanning using phone");
             }
         }
     }
@@ -302,13 +303,14 @@ public class WiFiScanActivity extends AppCompatActivity {
         if (TextUtils.isEmpty(ssid) || ssid.equals(getString(R.string.select_network))) {
             Toast.makeText(WiFiScanActivity.this, R.string.error_network_select, Toast.LENGTH_LONG).show();
         } else {
+            ProvisioningLog.i(TAG, "Wi-Fi selected for provisioning, ssid=" + ssid + "; password hidden");
             goToProvisionActivity(ssid, password);
         }
     }
 
     private void startWifiScanUsingDevice() {
 
-        Log.d(TAG, "Start Wi-Fi Scan");
+        ProvisioningLog.d(TAG, "Start Wi-Fi Scan");
         wifiAPList.clear();
         WiFiAccessPoint selectNw = new WiFiAccessPoint();
         selectNw.setWifiName(getString(R.string.select_network));
@@ -323,6 +325,7 @@ public class WiFiScanActivity extends AppCompatActivity {
                     @Override
                     public void run() {
                         wifiAPList.addAll(wifiList);
+                        ProvisioningLog.i(TAG, "Device Wi-Fi scan results received, count=" + wifiList.size());
                         displayWifiList();
                     }
                 });
@@ -331,7 +334,7 @@ public class WiFiScanActivity extends AppCompatActivity {
             @Override
             public void onWiFiScanFailed(Exception e) {
 
-                Log.e(TAG, "onWiFiScanFailed");
+                ProvisioningLog.e(TAG, "onWiFiScanFailed");
                 e.printStackTrace();
                 runOnUiThread(new Runnable() {
                     @Override
@@ -386,7 +389,7 @@ public class WiFiScanActivity extends AppCompatActivity {
             if (success) {
                 displayWifiList();
             } else {
-                Log.e(TAG, "Failed to start Wi-Fi Scanning using phone");
+                ProvisioningLog.e(TAG, "Failed to start Wi-Fi Scanning using phone");
             }
         }
     };
@@ -414,14 +417,14 @@ public class WiFiScanActivity extends AppCompatActivity {
                         ScanResult network = results.get(i);
                         String networkName = network.SSID;
 
-                        Log.e(TAG, "Network name : " + networkName);
+                        ProvisioningLog.e(TAG, "Network name : " + networkName);
                         networkName = networkName.replace("\"", "");
                         WiFiAccessPoint wifiAp = new WiFiAccessPoint();
                         wifiAp.setWifiName(networkName);
                         wifiAp.setRssi(network.level);
 
                         String capabilities = network.capabilities;
-                        Log.w(TAG, network.SSID + " capabilities : " + capabilities);
+                        ProvisioningLog.w(TAG, network.SSID + " capabilities : " + capabilities);
                         if (capabilities.toUpperCase().contains("WEP")) {
                             wifiAp.setSecurity(ESPConstants.WIFI_WEP);
                         } else if (capabilities.toUpperCase().contains("WPA")) {

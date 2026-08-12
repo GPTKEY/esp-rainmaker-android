@@ -418,6 +418,11 @@
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme.NoActionBar" />
         <activity
+            android:name="com.espressif.ui.activities.ProvisioningLogActivity"
+            android:label="@string/title_activity_logs"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
             android:name="com.espressif.ui.activities.PreferencesActivity"
             android:label="@string/title_activity_preferences"
             android:screenOrientation="portrait"

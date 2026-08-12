@@ -19,7 +19,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.TextUtils;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.View;
 import android.view.animation.Animation;
 import android.view.animation.LinearInterpolator;
@@ -120,17 +120,17 @@ public class ClaimingActivity extends AppCompatActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(DeviceConnectionEvent event) {
 
-        Log.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
 
         switch (event.getEventType()) {
 
             case ESPConstants.EVENT_DEVICE_CONNECTED:
-                Log.i(CLAIM_DIAG_TAG, "device_connected claim_start_retry=" + hasTriedAgain);
+                ProvisioningLog.i(CLAIM_DIAG_TAG, "device_connected claim_start_retry=" + hasTriedAgain);
                 sendClaimStartRequest();
                 break;
 
             case ESPConstants.EVENT_DEVICE_DISCONNECTED:
-                Log.e(CLAIM_DIAG_TAG, "device_disconnected during_claiming=true");
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "device_disconnected during_claiming=true");
                 if (!isFinishing()) {
                     showAlertForDeviceDisconnected();
                 }
@@ -195,8 +195,8 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendClaimStartRequest() {
 
-        Log.d(TAG, "Claim Start Request");
-        Log.i(CLAIM_DIAG_TAG, "claim_start_send endpoint=" + AppConstants.HANDLER_RM_CLAIM
+        ProvisioningLog.d(TAG, "Claim Start Request");
+        ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_start_send endpoint=" + AppConstants.HANDLER_RM_CLAIM
                 + " retried=" + hasTriedAgain);
 
         EspRmakerClaim.PayloadBuf payloadBuf = EspRmakerClaim.PayloadBuf.newBuilder()
@@ -213,8 +213,8 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onSuccess(byte[] returnData) {
 
-                Log.d(TAG, "Successfully sent claiming start command");
-                Log.i(CLAIM_DIAG_TAG, "claim_start_transport_success response_len="
+                ProvisioningLog.d(TAG, "Successfully sent claiming start command");
+                ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_start_transport_success response_len="
                         + (returnData != null ? returnData.length : -1));
                 processClaimingStartResponse(returnData);
             }
@@ -222,8 +222,8 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onFailure(Exception e) {
 
-                Log.e(TAG, "Failed to start claiming");
-                Log.e(CLAIM_DIAG_TAG, "claim_start_transport_failed retried=" + hasTriedAgain
+                ProvisioningLog.e(TAG, "Failed to start claiming");
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_start_transport_failed retried=" + hasTriedAgain
                         + " exception=" + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(e.getMessage()));
                 e.printStackTrace();
@@ -241,7 +241,7 @@ public class ClaimingActivity extends AppCompatActivity {
                     });
                 } else {
                     hasTriedAgain = true;
-                    Log.w(CLAIM_DIAG_TAG, "claim_start_refresh_ble_services");
+                    ProvisioningLog.w(CLAIM_DIAG_TAG, "claim_start_refresh_ble_services");
                     provisionManager.getEspDevice().refreshServicesOfBleDevice();
                 }
             }
@@ -253,7 +253,7 @@ public class ClaimingActivity extends AppCompatActivity {
         try {
             EspRmakerClaim.RMakerClaimPayload payload = EspRmakerClaim.RMakerClaimPayload.parseFrom(responseData);
             EspRmakerClaim.RespPayload response = payload.getRespPayload();
-            Log.i(CLAIM_DIAG_TAG, "claim_start_response status=" + response.getStatus()
+            ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_start_response status=" + response.getStatus()
                     + " payload_len=" + response.getBuf().getPayload().size()
                     + " offset=" + response.getBuf().getOffset()
                     + " total_len=" + response.getBuf().getTotalLen());
@@ -278,7 +278,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
         } catch (InvalidProtocolBufferException e) {
 
-            Log.e(CLAIM_DIAG_TAG, "claim_start_response_parse_failed response_len="
+            ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_start_response_parse_failed response_len="
                     + (responseData != null ? responseData.length : -1)
                     + " exception=" + e.getClass().getSimpleName());
             e.printStackTrace();
@@ -300,7 +300,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendClaimInitRequest(String data) {
 
-        Log.d(TAG, "Claim Init Request");
+        ProvisioningLog.d(TAG, "Claim Init Request");
         ByteString byteString = ByteString.copyFromUtf8(data);
         EspRmakerClaim.PayloadBuf payloadBuf = EspRmakerClaim.PayloadBuf.newBuilder()
                 .setOffset(0)
@@ -314,7 +314,7 @@ public class ClaimingActivity extends AppCompatActivity {
                 .setCmdPayload(payloadBuf)
                 .build();
         byte[] requestBytes = payload.toByteArray();
-        Log.i(CLAIM_DIAG_TAG, "claim_init_send cloud_response_len=" + byteString.size()
+        ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_init_send cloud_response_len=" + byteString.size()
                 + " protobuf_len=" + requestBytes.length);
 
         provisionManager.getEspDevice().sendDataToCustomEndPoint(AppConstants.HANDLER_RM_CLAIM, requestBytes, new ResponseListener() {
@@ -322,8 +322,8 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onSuccess(byte[] returnData) {
 
-                Log.d(TAG, "Successfully sent claiming init command");
-                Log.i(CLAIM_DIAG_TAG, "claim_init_transport_success response_len="
+                ProvisioningLog.d(TAG, "Successfully sent claiming init command");
+                ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_init_transport_success response_len="
                         + (returnData != null ? returnData.length : -1));
                 getCSRFromDevice(returnData);
             }
@@ -331,8 +331,8 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onFailure(Exception e) {
 
-                Log.e(TAG, "Send config data : Error : " + e.getMessage());
-                Log.e(CLAIM_DIAG_TAG, "claim_init_transport_failed exception="
+                ProvisioningLog.e(TAG, "Send config data : Error : " + e.getMessage());
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_init_transport_failed exception="
                         + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(e.getMessage()));
                 e.printStackTrace();
@@ -359,7 +359,7 @@ public class ClaimingActivity extends AppCompatActivity {
             int payloadLen = response.getBuf().getPayload().size();
             int offset = response.getBuf().getOffset();
             int totalLen = response.getBuf().getTotalLen();
-            Log.i(CLAIM_DIAG_TAG, "claim_init_response status=" + response.getStatus()
+            ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_init_response status=" + response.getStatus()
                     + " offset=" + offset
                     + " total_len=" + totalLen
                     + " payload_len=" + payloadLen
@@ -368,30 +368,30 @@ public class ClaimingActivity extends AppCompatActivity {
             if (response.getStatus() == EspRmakerClaim.RMakerClaimStatus.Success) {
 
                 String data = response.getBuf().getPayload().toStringUtf8();
-                Log.d(TAG, "Offset : " + offset + " and total length : " + totalLen);
+                ProvisioningLog.d(TAG, "Offset : " + offset + " and total length : " + totalLen);
 
                 if (offset == 0) {
                     dataCount = data.length();
                     csrData = new StringBuilder();
-                    Log.i(CLAIM_DIAG_TAG, "csr_first_fragment data_count=" + dataCount
+                    ProvisioningLog.i(CLAIM_DIAG_TAG, "csr_first_fragment data_count=" + dataCount
                             + " total_len=" + totalLen);
                 }
                 csrData.append(data);
-                Log.d(TAG, "Received CSR Length till now : " + csrData.length());
-                Log.d(TAG, "dataCount : " + dataCount);
-                Log.i(CLAIM_DIAG_TAG, "csr_fragment_accumulated chars=" + csrData.length()
+                ProvisioningLog.d(TAG, "Received CSR Length till now : " + csrData.length());
+                ProvisioningLog.d(TAG, "dataCount : " + dataCount);
+                ProvisioningLog.i(CLAIM_DIAG_TAG, "csr_fragment_accumulated chars=" + csrData.length()
                         + " total_len=" + totalLen);
 
                 if (csrData.length() >= totalLen) {
-                    Log.i(CLAIM_DIAG_TAG, "csr_complete chars=" + csrData.length());
+                    ProvisioningLog.i(CLAIM_DIAG_TAG, "csr_complete chars=" + csrData.length());
                     sendCSRToAPI(csrData.toString());
                 } else {
                     requestCSRData();
                 }
             } else {
 
-                Log.d(TAG, "Claiming init status : " + response.getStatus());
-                Log.e(CLAIM_DIAG_TAG, "claim_init_device_rejected status=" + response.getStatus()
+                ProvisioningLog.d(TAG, "Claiming init status : " + response.getStatus());
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_init_device_rejected status=" + response.getStatus()
                         + " offset=" + offset
                         + " total_len=" + totalLen
                         + " payload_len=" + payloadLen);
@@ -409,7 +409,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
         } catch (InvalidProtocolBufferException e) {
 
-            Log.e(CLAIM_DIAG_TAG, "claim_init_response_parse_failed response_len="
+            ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_init_response_parse_failed response_len="
                     + (responseData != null ? responseData.length : -1)
                     + " exception=" + e.getClass().getSimpleName());
             e.printStackTrace();
@@ -439,14 +439,14 @@ public class ClaimingActivity extends AppCompatActivity {
                 .setMsg(msgType)
                 .setCmdPayload(payloadBuf)
                 .build();
-        Log.i(CLAIM_DIAG_TAG, "csr_next_fragment_request accumulated_chars=" + csrData.length());
+        ProvisioningLog.i(CLAIM_DIAG_TAG, "csr_next_fragment_request accumulated_chars=" + csrData.length());
 
         provisionManager.getEspDevice().sendDataToCustomEndPoint(AppConstants.HANDLER_RM_CLAIM, payload.toByteArray(), new ResponseListener() {
 
             @Override
             public void onSuccess(byte[] returnData) {
 
-                Log.i(CLAIM_DIAG_TAG, "csr_next_fragment_transport_success response_len="
+                ProvisioningLog.i(CLAIM_DIAG_TAG, "csr_next_fragment_transport_success response_len="
                         + (returnData != null ? returnData.length : -1));
                 getCSRFromDevice(returnData);
             }
@@ -454,8 +454,8 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onFailure(Exception e) {
 
-                Log.e(TAG, "Error : " + e.getMessage());
-                Log.e(CLAIM_DIAG_TAG, "csr_next_fragment_transport_failed accumulated_chars="
+                ProvisioningLog.e(TAG, "Error : " + e.getMessage());
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "csr_next_fragment_transport_failed accumulated_chars="
                         + csrData.length()
                         + " exception=" + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(e.getMessage()));
@@ -480,20 +480,20 @@ public class ClaimingActivity extends AppCompatActivity {
         if (isClaimingAborted) {
             return;
         }
-        Log.d(TAG, "Send certificate to device, offset : " + offset);
+        ProvisioningLog.d(TAG, "Send certificate to device, offset : " + offset);
         String data = "";
 
         try {
             int totalLen = certificateData.length();
             int len = offset + dataCount;
 
-            Log.d(TAG, "Length : " + len + " and total len : " + totalLen);
+            ProvisioningLog.d(TAG, "Length : " + len + " and total len : " + totalLen);
 
             if (len > totalLen) {
-                Log.d(TAG, "Actual end index : " + totalLen);
+                ProvisioningLog.d(TAG, "Actual end index : " + totalLen);
                 data = certificateData.substring(offset, totalLen);
             } else {
-                Log.d(TAG, "Actual end index : " + len);
+                ProvisioningLog.d(TAG, "Actual end index : " + len);
                 data = certificateData.substring(offset, len);
             }
         } catch (Exception e) {
@@ -519,8 +519,8 @@ public class ClaimingActivity extends AppCompatActivity {
 
                 if ((offset + dataCount) >= certificateData.length()) {
 
-                    Log.d(TAG, "Certificate Sent to device successfully.");
-                    Log.i(CLAIM_DIAG_TAG, "claim_verify_complete certificate_len=" + certificateData.length());
+                    ProvisioningLog.d(TAG, "Certificate Sent to device successfully.");
+                    ProvisioningLog.i(CLAIM_DIAG_TAG, "claim_verify_complete certificate_len=" + certificateData.length());
                     ArrayList<String> deviceCaps = provisionManager.getEspDevice().getDeviceCapabilities();
                     /* Claim 顺序保持不变。Claim 完成后先读取设备当前标准 Wi-Fi status，
                      * 再决定复用当前网络还是进入原有 Wi-Fi 配置页面。 */
@@ -534,8 +534,8 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onFailure(Exception e) {
 
-                Log.e(TAG, "Error : " + e.getMessage());
-                Log.e(CLAIM_DIAG_TAG, "claim_verify_transport_failed offset=" + offset
+                ProvisioningLog.e(TAG, "Error : " + e.getMessage());
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_verify_transport_failed offset=" + offset
                         + " exception=" + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(e.getMessage()));
                 e.printStackTrace();
@@ -556,8 +556,8 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void sendClaimAbortRequest() {
 
-        Log.d(TAG, "Claim Abort Request");
-        Log.w(CLAIM_DIAG_TAG, "claim_abort_send");
+        ProvisioningLog.d(TAG, "Claim Abort Request");
+        ProvisioningLog.w(CLAIM_DIAG_TAG, "claim_abort_send");
         isClaimingAborted = true;
 
         EspRmakerClaim.PayloadBuf payloadBuf = EspRmakerClaim.PayloadBuf.newBuilder()
@@ -574,16 +574,16 @@ public class ClaimingActivity extends AppCompatActivity {
             @Override
             public void onSuccess(byte[] returnData) {
 
-                Log.d(TAG, "Successfully sent claiming abort command");
-                Log.w(CLAIM_DIAG_TAG, "claim_abort_transport_success response_len="
+                ProvisioningLog.d(TAG, "Successfully sent claiming abort command");
+                ProvisioningLog.w(CLAIM_DIAG_TAG, "claim_abort_transport_success response_len="
                         + (returnData != null ? returnData.length : -1));
             }
 
             @Override
             public void onFailure(Exception e) {
 
-                Log.e(TAG, "Failed to abort claiming");
-                Log.e(CLAIM_DIAG_TAG, "claim_abort_transport_failed exception="
+                ProvisioningLog.e(TAG, "Failed to abort claiming");
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "claim_abort_transport_failed exception="
                         + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(e.getMessage()));
                 e.printStackTrace();
@@ -612,7 +612,7 @@ public class ClaimingActivity extends AppCompatActivity {
             if (versionInfo != null && (versionInfo.toLowerCase().contains("camera") ||
                     versionInfo.toLowerCase().contains("stream") ||
                     versionInfo.toLowerCase().contains("video"))) {
-                Log.d(TAG, "Camera device detected in version info");
+                ProvisioningLog.d(TAG, "Camera device detected in version info");
                 return true;
             }
 
@@ -623,18 +623,18 @@ public class ClaimingActivity extends AppCompatActivity {
                     if (cap != null && (cap.toLowerCase().contains("camera") ||
                             cap.toLowerCase().contains("video") ||
                             cap.toLowerCase().contains("stream"))) {
-                        Log.d(TAG, "Camera device detected by capability: " + cap);
+                        ProvisioningLog.d(TAG, "Camera device detected by capability: " + cap);
                         return true;
                     }
                 }
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error checking camera device type: " + e.getMessage());
+            ProvisioningLog.e(TAG, "Error checking camera device type: " + e.getMessage());
             e.printStackTrace();
         }
 
-        Log.d(TAG, "Device is not detected as a camera device");
+        ProvisioningLog.d(TAG, "Device is not detected as a camera device");
         return false;
     }
 
@@ -643,7 +643,7 @@ public class ClaimingActivity extends AppCompatActivity {
         if (isClaimingAborted) {
             return;
         }
-        Log.i(CLAIM_DIAG_TAG, "cloud_claim_init_send device_info_len="
+        ProvisioningLog.i(CLAIM_DIAG_TAG, "cloud_claim_init_send device_info_len="
                 + (data != null ? data.length() : -1));
         Gson gson = new Gson();
         JsonObject body = gson.fromJson(data, JsonObject.class);
@@ -654,11 +654,11 @@ public class ClaimingActivity extends AppCompatActivity {
 
                 if (data != null) {
                     String res = data.getString(AppConstants.KEY_CLAIM_INIT_RESPONSE);
-                    Log.i(CLAIM_DIAG_TAG, "cloud_claim_init_success response_len="
+                    ProvisioningLog.i(CLAIM_DIAG_TAG, "cloud_claim_init_success response_len="
                             + (res != null ? res.length() : -1));
                     sendClaimInitRequest(res);
                 } else {
-                    Log.e(CLAIM_DIAG_TAG, "cloud_claim_init_success bundle_null=true");
+                    ProvisioningLog.e(CLAIM_DIAG_TAG, "cloud_claim_init_success bundle_null=true");
                 }
             }
 
@@ -666,8 +666,8 @@ public class ClaimingActivity extends AppCompatActivity {
             public void onResponseFailure(Exception e) {
 
                 final String errMsg = e.getMessage();
-                Log.e(TAG, "Failed to start claiming. Error : " + errMsg);
-                Log.e(CLAIM_DIAG_TAG, "cloud_claim_init_response_failed exception="
+                ProvisioningLog.e(TAG, "Failed to start claiming. Error : " + errMsg);
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "cloud_claim_init_response_failed exception="
                         + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(errMsg));
                 e.printStackTrace();
@@ -689,8 +689,8 @@ public class ClaimingActivity extends AppCompatActivity {
             public void onNetworkFailure(Exception e) {
 
                 final String errMsg = e.getMessage();
-                Log.e(TAG, "Failed to start claiming. Error : " + errMsg);
-                Log.e(CLAIM_DIAG_TAG, "cloud_claim_init_network_failed exception="
+                ProvisioningLog.e(TAG, "Failed to start claiming. Error : " + errMsg);
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "cloud_claim_init_network_failed exception="
                         + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(errMsg));
                 e.printStackTrace();
@@ -715,7 +715,7 @@ public class ClaimingActivity extends AppCompatActivity {
         if (isClaimingAborted) {
             return;
         }
-        Log.i(CLAIM_DIAG_TAG, "cloud_claim_verify_send csr_len="
+        ProvisioningLog.i(CLAIM_DIAG_TAG, "cloud_claim_verify_send csr_len="
                 + (data != null ? data.length() : -1));
         Gson gson = new Gson();
         JsonObject body = gson.fromJson(data, JsonObject.class);
@@ -723,7 +723,7 @@ public class ClaimingActivity extends AppCompatActivity {
         // Add node_policies for camera_claim devices
         if (isCameraClaim) {
             body.addProperty("node_policies", "videostream");
-            Log.d(TAG, "Added node_policies: videostream for camera_claim device");
+            ProvisioningLog.d(TAG, "Added node_policies: videostream for camera_claim device");
         }
 
         apiManager.verifyClaiming(body, new ApiResponseListener() {
@@ -733,12 +733,12 @@ public class ClaimingActivity extends AppCompatActivity {
 
                 if (data != null) {
                     certificateData = data.getString(AppConstants.KEY_CLAIM_VERIFY_RESPONSE);
-                    Log.d(TAG, "Data send to cloud for verify");
-                    Log.i(CLAIM_DIAG_TAG, "cloud_claim_verify_success certificate_len="
+                    ProvisioningLog.d(TAG, "Data send to cloud for verify");
+                    ProvisioningLog.i(CLAIM_DIAG_TAG, "cloud_claim_verify_success certificate_len="
                             + (certificateData != null ? certificateData.length() : -1));
                     sendCertificateToDevice(0);
                 } else {
-                    Log.e(CLAIM_DIAG_TAG, "cloud_claim_verify_success bundle_null=true");
+                    ProvisioningLog.e(CLAIM_DIAG_TAG, "cloud_claim_verify_success bundle_null=true");
                 }
             }
 
@@ -746,8 +746,8 @@ public class ClaimingActivity extends AppCompatActivity {
             public void onResponseFailure(Exception e) {
 
                 final String errMsg = e.getMessage();
-                Log.e(TAG, "Failed to verify claiming. Error : " + errMsg);
-                Log.e(CLAIM_DIAG_TAG, "cloud_claim_verify_response_failed exception="
+                ProvisioningLog.e(TAG, "Failed to verify claiming. Error : " + errMsg);
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "cloud_claim_verify_response_failed exception="
                         + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(errMsg));
                 e.printStackTrace();
@@ -769,8 +769,8 @@ public class ClaimingActivity extends AppCompatActivity {
             public void onNetworkFailure(Exception e) {
 
                 final String errMsg = e.getMessage();
-                Log.e(TAG, "Failed to verify claiming. Error : " + errMsg);
-                Log.e(CLAIM_DIAG_TAG, "cloud_claim_verify_network_failed exception="
+                ProvisioningLog.e(TAG, "Failed to verify claiming. Error : " + errMsg);
+                ProvisioningLog.e(CLAIM_DIAG_TAG, "cloud_claim_verify_network_failed exception="
                         + e.getClass().getSimpleName()
                         + " message=" + String.valueOf(errMsg));
                 e.printStackTrace();
@@ -890,7 +890,7 @@ public class ClaimingActivity extends AppCompatActivity {
                 return true;
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error checking BLE local ctrl caps: " + e.getMessage());
+            ProvisioningLog.e(TAG, "Error checking BLE local ctrl caps: " + e.getMessage());
         }
         return false;
     }
@@ -954,7 +954,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void displayError() {
 
-        Log.e(TAG, "Claiming error occurred");
+        ProvisioningLog.e(TAG, "Claiming error occurred");
         stopClaimingProgress();
         binding.layoutClaiming.tvPleaseWait.setVisibility(View.GONE);
         btnOk.setVisibility(View.VISIBLE);
@@ -964,7 +964,7 @@ public class ClaimingActivity extends AppCompatActivity {
 
     private void hideError() {
 
-        Log.e(TAG, "Claiming error occurred");
+        ProvisioningLog.e(TAG, "Claiming error occurred");
         stopClaimingProgress();
         binding.layoutClaiming.tvPleaseWait.setVisibility(View.VISIBLE);
         btnOk.setVisibility(View.GONE);
@@ -977,7 +977,7 @@ public class ClaimingActivity extends AppCompatActivity {
         @Override
         public void run() {
             shouldSendClaimAbortReq = true;
-            Log.w(CLAIM_DIAG_TAG, "claim_ui_timeout_reached abort_allowed=true");
+            ProvisioningLog.w(CLAIM_DIAG_TAG, "claim_ui_timeout_reached abort_allowed=true");
         }
     };
 

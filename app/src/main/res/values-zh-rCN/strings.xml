@@ -710,4 +710,13 @@
     <string name="reconfigure_wifi">重新配置 Wi-Fi</string>
     <string name="current_wifi_reuse_prov_step">继续使用设备当前 Wi-Fi</string>
 
+
+    <!-- 本次 App 启动的内存配网日志 -->
+    <string name="title_activity_logs">日志</string>
+    <string name="logs_memory_only_note">显示本次 App 启动以来的蓝牙、Security、证书 Claim、Wi-Fi 配网和设备添加日志。仅保存在内存中，App 进程重启后自动清空；敏感凭据会自动隐藏。</string>
+    <string name="logs_copy">复制</string>
+    <string name="logs_clear">清空</string>
+    <string name="logs_empty">本次启动暂无配网日志。</string>
+    <string name="logs_copied">日志已复制</string>
+
 </resources>

@@ -5,7 +5,7 @@ import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 
 import androidx.appcompat.app.AlertDialog;
 
@@ -134,7 +134,7 @@ public final class ExistingWifiReuseHelper {
             @Override
             public void run() {
                 if (queryFinished.compareAndSet(false, true)) {
-                    Log.w(TAG, "Current Wi-Fi status query timed out; use normal Wi-Fi provisioning");
+                    ProvisioningLog.w(TAG, "Current Wi-Fi status query timed out; use normal Wi-Fi provisioning");
                     runIfActivityAlive(activity, new Runnable() {
                         @Override
                         public void run() {
@@ -162,7 +162,7 @@ public final class ExistingWifiReuseHelper {
                         try {
                             status = parseStatus(returnData);
                         } catch (Exception e) {
-                            Log.w(TAG, "Unable to parse current Wi-Fi status; use normal provisioning", e);
+                            ProvisioningLog.w(TAG, "Unable to parse current Wi-Fi status; use normal provisioning", e);
                             runIfActivityAlive(activity, new Runnable() {
                                 @Override
                                 public void run() {
@@ -172,7 +172,7 @@ public final class ExistingWifiReuseHelper {
                             return;
                         }
 
-                        Log.i(TAG, "Current Wi-Fi: connected=" + status.isConnected()
+                        ProvisioningLog.i(TAG, "Current Wi-Fi: connected=" + status.isConnected()
                                 + ", reusable=" + status.isReusable()
                                 + ", ssid=" + status.getSsid()
                                 + ", ip=" + status.getIpAddress()
@@ -196,7 +196,7 @@ public final class ExistingWifiReuseHelper {
                             return;
                         }
                         handler.removeCallbacks(timeoutTask);
-                        Log.w(TAG, "Current Wi-Fi status query failed; use normal provisioning", e);
+                        ProvisioningLog.w(TAG, "Current Wi-Fi status query failed; use normal provisioning", e);
                         runIfActivityAlive(activity, new Runnable() {
                             @Override
                             public void run() {

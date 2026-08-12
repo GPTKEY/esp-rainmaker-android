@@ -16,7 +16,7 @@ package com.espressif.ui.activities;
 
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
@@ -85,7 +85,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
 
         nodeId = getIntent().getStringExtra(AppConstants.KEY_NODE_ID);
         if (TextUtils.isEmpty(nodeId)) {
-            Log.e(TAG, "Node ID is null");
+            ProvisioningLog.e(TAG, "Node ID is null");
             finish();
             return;
         }
@@ -93,7 +93,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
         BleLocalControlManager bleManager = BleLocalControlManager.getInstance(this);
         espDevice = bleManager.getEspDevice(nodeId);
         if (espDevice == null) {
-            Log.e(TAG, "ESPDevice is null — BLE not connected for " + nodeId);
+            ProvisioningLog.e(TAG, "ESPDevice is null — BLE not connected for " + nodeId);
             Toast.makeText(this, R.string.ble_prov_failed, Toast.LENGTH_SHORT).show();
             finish();
             return;
@@ -200,7 +200,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
                 @Override
                 public void onWiFiScanFailed(Exception e) {
                     runOnUiThread(() -> {
-                        Log.e(TAG, "Wi-Fi scan failed: " + e.getMessage());
+                        ProvisioningLog.e(TAG, "Wi-Fi scan failed: " + e.getMessage());
                         hideScanLoading();
                         Toast.makeText(BleWifiProvisionActivity.this,
                                 "Wi-Fi scan failed", Toast.LENGTH_SHORT).show();
@@ -323,7 +323,7 @@ public class BleWifiProvisionActivity extends AppCompatActivity {
     }
 
     private void showProvisionError(String detail) {
-        Log.e(TAG, detail);
+        ProvisioningLog.e(TAG, detail);
         progress1.setVisibility(View.GONE);
         progress2.setVisibility(View.GONE);
         progress3.setVisibility(View.GONE);

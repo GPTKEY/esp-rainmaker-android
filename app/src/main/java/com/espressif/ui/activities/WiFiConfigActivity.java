@@ -20,7 +20,7 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -75,7 +75,7 @@ public class WiFiConfigActivity extends AppCompatActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(DeviceConnectionEvent event) {
 
-        Log.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
 
         switch (event.getEventType()) {
 
@@ -100,6 +100,7 @@ public class WiFiConfigActivity extends AppCompatActivity {
                 return;
             }
 
+            ProvisioningLog.i(TAG, "Manual Wi-Fi provisioning requested, ssid=" + ssid + "; password hidden");
             goToProvisionActivity(ssid, password);
         }
     };

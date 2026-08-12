@@ -18,7 +18,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
+import com.espressif.utils.ProvisioningLog;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -129,7 +129,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEvent(DeviceConnectionEvent event) {
 
-        Log.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
+        ProvisioningLog.d(TAG, "On Device Connection Event RECEIVED : " + event.getEventType());
 
         switch (event.getEventType()) {
 
@@ -182,7 +182,8 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
     private void nextBtnClick() {
 
         final String pop = etPop.getText().toString();
-        Log.d(TAG, "Set POP : " + pop);
+        ProvisioningLog.i(TAG, "PoP provided; value hidden");
+        ProvisioningLog.i(TAG, "Security session initialization started");
         tvPopError.setVisibility(View.INVISIBLE);
         
         // Handle on-network flow differently
@@ -203,6 +204,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
             @Override
             public void onSuccess(byte[] returnData) {
 
+                ProvisioningLog.i(TAG, "Security session established successfully");
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -228,7 +230,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
                             }
                         } catch (JSONException e) {
                             e.printStackTrace();
-                            Log.d(TAG, "Version Info JSON not available.");
+                            ProvisioningLog.d(TAG, "Version Info JSON not available.");
                         }
 
                         boolean hasClaimCap = false, hasCameraClaimCap = false;
@@ -249,6 +251,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(Exception e) {
+                ProvisioningLog.e(TAG, "Security session initialization failed", e);
                 e.printStackTrace();
                 runOnUiThread(new Runnable() {
                     @Override
@@ -370,7 +373,7 @@ public class ProofOfPossessionActivity extends AppCompatActivity {
                 return true;
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error checking BLE local ctrl caps: " + e.getMessage());
+            ProvisioningLog.e(TAG, "Error checking BLE local ctrl caps: " + e.getMessage());
         }
         return false;
     }

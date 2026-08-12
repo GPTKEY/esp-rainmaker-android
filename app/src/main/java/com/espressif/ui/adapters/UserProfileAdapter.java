@@ -30,6 +30,7 @@ import com.espressif.ui.activities.AccountActivity;
 import com.espressif.ui.activities.GroupShareActivity;
 import com.espressif.ui.activities.NotificationsActivity;
 import com.espressif.ui.activities.PreferencesActivity;
+import com.espressif.ui.activities.ProvisioningLogActivity;
 import com.espressif.ui.activities.VoiceServicesActivity;
 
 import java.util.ArrayList;
@@ -96,6 +97,10 @@ public class UserProfileAdapter extends RecyclerView.Adapter<UserProfileAdapter.
                 } else if (str.equals(context.getString(R.string.title_activity_group_sharing_requests))) {
 
                     context.startActivity(new Intent(context, GroupShareActivity.class));
+
+                } else if (str.equals(context.getString(R.string.title_activity_logs))) {
+
+                    context.startActivity(new Intent(context, ProvisioningLogActivity.class));
 
                 } else if (str.equals(context.getString(R.string.preferences))) {
 
