@@ -33,6 +33,9 @@ def patch_dashboard() -> None:
         "private fun DashboardCard(content: @Composable Column.() -> Unit)",
         "private fun DashboardCard(content: @Composable ColumnScope.() -> Unit)",
     )
+    # Compose DrawScope.drawLine() uses strokeWidth, not width.
+    text = text.replace("width = 2.dp.toPx(),", "strokeWidth = 2.dp.toPx(),")
+    text = text.replace("width = 3.dp.toPx(),", "strokeWidth = 3.dp.toPx(),")
     write(path, text)
 
 
