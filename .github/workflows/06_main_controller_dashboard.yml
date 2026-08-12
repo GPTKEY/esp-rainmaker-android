@@ -1,0 +1,136 @@
+name: Main Controller Dashboard
+
+on:
+  push:
+    branches:
+      - codex/main-controller-dashboard
+    paths:
+      - "scripts/implement_main_controller_dashboard.py"
+      - ".github/workflows/06_main_controller_dashboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: main-controller-dashboard
+  cancel-in-progress: true
+
+jobs:
+  implement-build-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout dashboard branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/main-controller-dashboard
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Apply dashboard integration
+        shell: bash
+        run: |
+          python3 -m py_compile scripts/implement_main_controller_dashboard.py
+          python3 scripts/implement_main_controller_dashboard.py
+
+      - name: Verify RainMaker contract binding
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          dashboard = Path('app/src/main/java/com/espressif/ui/activities/MainControllerDashboardActivity.kt').read_text(encoding='utf-8')
+          adapter = Path('app/src/main/java/com/espressif/ui/adapters/EspDeviceAdapter.java').read_text(encoding='utf-8')
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
+
+          required = [
+              'Host Controller', 'Liquid Monitor', 'LevelPercent', 'LowThreshold', 'HighThreshold',
+              'OutputState', 'WorkMode', 'LoRaAvailable', 'NodeCount', 'OnlineNodeCount',
+              'WiFiRSSI', 'CloudOnline', 'RemoteControlEnabled'
+          ]
+          for name in required:
+              assert name in dashboard, name
+          assert 'MainControllerDashboardActivity.isMainControllerDevice' in adapter
+          assert 'MainControllerDashboardActivity' in manifest
+          assert 'NetworkApiManager' in dashboard
+          assert 'getParamsValues' in dashboard
+          assert 'updateParamValue' in dashboard
+          print('Dashboard contract checks passed')
+          PY
+
+      - name: Create CI build properties
+        shell: bash
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=${ANDROID_SDK_ROOT}
+          appName=ESP RainMaker Main Controller
+          transport=Both
+          security=2
+          security2Username=wifiprov
+          security2UsernameThread=threadprov
+          deviceNamePrefix=PROV_
+          wifiScanSource=Device
+          isChinaRegion=false
+          isLocalControlSupported=true
+          isScheduleSupported=true
+          isSceneSupported=true
+          isNodeGroupingSupported=true
+          isNodeSharingSupported=true
+          isAutomationSupported=true
+          isOtaSupported=false
+          isMatterSupported=false
+          isCommandResponseSupported=false
+          EOF
+
+          if [ ! -f app/google-services.json ] && [ -f app/google-services.json.template ]; then
+            cp app/google-services.json.template app/google-services.json
+          fi
+
+      - name: Build debug APK
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Commit compiled dashboard integration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/com/espressif/ui/activities/MainControllerDashboardActivity.kt \
+            app/src/main/java/com/espressif/ui/adapters/EspDeviceAdapter.java \
+            app/src/main/AndroidManifest.xml
+
+          if git diff --cached --quiet; then
+            echo "No product source changes to commit."
+          else
+            git commit -m "功能：接入主控制器专用仪表盘"
+            git push origin HEAD:codex/main-controller-dashboard
+          fi
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-controller-dashboard-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
